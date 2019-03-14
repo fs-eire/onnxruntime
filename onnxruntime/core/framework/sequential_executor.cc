@@ -5,6 +5,7 @@
 
 #include <chrono>
 #include <thread>
+#include <iomanip>
 #include <vector>
 #include <sstream>
 #include "core/common/common.h"
@@ -13,7 +14,29 @@
 #include "core/framework/execution_frame.h"
 #include "core/framework/session_state.h"
 #include "core/framework/op_kernel_context_internal.h"
+#include "core/framework/tensor.h"
 #include "core/framework/utils.h"
+
+using Tensor = onnxruntime::Tensor;
+
+static int layer_ = 0;
+const char* LayerSpace() {
+  const static char buf[] = "                                 ";
+  return buf + sizeof(buf) - layer_ * 2;
+}
+
+std::string Sample(const Tensor* tensor) {
+  const void* buf = tensor->DataRaw();
+  size_t size = std::min(tensor->Size(), (size_t)256);
+  std::ostringstream os;
+  os << "[0x" << std::hex << std::uppercase << std::setw(16) << std::setfill('0') << ((size_t)buf) << "]";
+  for (size_t i = 0; i < size; i++) {
+    if (i % 8 == 0) os << " ";
+    os << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << ((int)(((const unsigned char*)(buf))[i]));
+  }
+
+  return os.str();
+}
 
 namespace onnxruntime {
 
@@ -45,6 +68,8 @@ Status SequentialExecutor::Execute(const SessionState& session_state, const std:
 
   // uncomment the line below to dump execution plan
   //std::cout << std::make_pair(p_seq_exec_plan, &session_state) << "\n";
+
+  layer_++;
 
   for (const auto& node_exec_plan : exec_plan_vec) {
     if (terminate_flag_) {
@@ -112,6 +137,20 @@ Status SequentialExecutor::Execute(const SessionState& session_state, const std:
       kernel_begin_time = session_state.Profiler().StartTime();
     }
 
+
+    std::ostringstream os1;
+    os1 << LayerSpace() << "#### " << p_op_kernel->Node().Name() << " (" << p_op_kernel->Node().OpType() << ")" << std::endl;
+    for (int i = 0; i < op_kernel_context.InputCount(); i++) {
+     if (op_kernel_context.InputType(i) == TensorTypeBase::Type())
+       os1 << LayerSpace() << "  #Input" << i << " " << p_op_kernel->Node().InputDefs()[i]->Name()
+           << " (" << op_kernel_context.Input<Tensor>(i)->Shape() << ") "
+           << Sample(op_kernel_context.Input<Tensor>(i)) << std::endl;
+     else
+       os1 << LayerSpace() << "  #Input" << i << " " << p_op_kernel->Node().InputDefs()[i]->Name() << " (Non-Tensor)" << std::endl;
+    }
+
+    std::cout << os1.str();
+
     const auto& compute_status = p_op_kernel->Compute(&op_kernel_context);
     if (!compute_status.IsOK()) {
       std::ostringstream ss;
@@ -162,6 +201,26 @@ Status SequentialExecutor::Execute(const SessionState& session_state, const std:
                                                      {{"op_name", p_op_kernel->KernelDef().OpName()}});
     }
 
+    std::ostringstream os2;
+    // for (int i = 0; i < op_kernel_context.InputCount(); i++) {
+    //  if (op_kernel_context.InputType(i) == TensorTypeBase::Type())
+    //    os2 << LayerSpace() << "  ~Input" << i << " " << p_op_kernel->Node().InputDefs()[i]->Name()
+    //        << " (" << op_kernel_context.Input<Tensor>(i)->Shape() << ") "
+    //        << Sample(op_kernel_context.Input<Tensor>(i)) << std::endl;
+    //  else
+    //    os2 << LayerSpace() << "  ~Input" << i << " " << p_op_kernel->Node().InputDefs()[i]->Name() << " (Non-Tensor)" << std::endl;
+    // }
+    for (int i = 0; i < op_kernel_context.OutputCount(); i++) {
+     if (op_kernel_context.OutputType(i) == TensorTypeBase::Type())
+       os2 << LayerSpace() << "  ~Output" << i << " " << p_op_kernel->Node().OutputDefs()[i]->Name()
+           << " (" << op_kernel_context.Output<Tensor>(i)->Shape() << ") "
+           << Sample(op_kernel_context.Output<Tensor>(i)) << std::endl;
+     else
+       os2 << LayerSpace() << "  ~Output" << i << " " << p_op_kernel->Node().OutputDefs()[i]->Name() << " (Non-Tensor)" << std::endl;
+    }
+
+    std::cout << os2.str();
+
     // free ml-values corresponding to this node
     VLOGS(logger, 1) << "Releasing node ML values after computing kernel: " << p_op_kernel->Node().Name();
     ORT_RETURN_IF_ERROR(ReleaseNodeMLValues(frame, seq_exec_plan, node_exec_plan, logger));
@@ -190,6 +249,8 @@ Status SequentialExecutor::Execute(const SessionState& session_state, const std:
       ORT_RETURN_IF_ERROR(session_state.UpdateMemoryPatternGroupCache(input_shapes, std::move(mem_patterns)));
     }
   }
+
+  layer_--;
 
   if (f_profiler_enabled) {
     session_state.Profiler().EndTimeAndRecordEvent(profiling::SESSION_EVENT, "SequentialExecutor::Execute", tp);

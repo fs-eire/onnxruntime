@@ -536,6 +536,9 @@ class PlannerImpl {
               Reuse(input_index, current, AllocKind::kShare);
             }
           }
+
+          std::cout << "GraphOut(" << graph_viewer_.Name() << "): " << node_output->Name() << std::endl;
+
         } else if (IsNonTensor(*node_output)) {
           // we do not try sharing-optimization for non-tensors
           AllocPlan(current).alloc_kind = AllocKind::kAllocate;
