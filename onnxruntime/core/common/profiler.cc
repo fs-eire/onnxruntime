@@ -61,6 +61,8 @@ void Profiler::EndTimeAndRecordEvent(EventCategory category,
                                      TimePoint& start_time,
                                      const std::initializer_list<std::pair<std::string, std::string>>& event_args,
                                      bool /*sync_gpu*/) {
+  // if (category == EventCategory::NODE_EVENT) return;
+
   long long dur = TimeDiffMicroSeconds(start_time);
   long long ts = TimeDiffMicroSeconds(profiling_start_time_, start_time);
 

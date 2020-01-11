@@ -217,14 +217,68 @@ ORT_API_STATUS_IMPL(OrtApis::GetTensorTypeAndShape, _In_ const OrtValue* v, _Out
 
 ORT_API_STATUS_IMPL(OrtApis::GetValueType, _In_ const OrtValue* v, _Out_ ONNXType* out) {
   API_IMPL_BEGIN
-  OrtTypeInfo* type_info;
-  auto status = OrtTypeInfo::FromOrtValue(*v, &type_info);
-  if (status != nullptr)
-    return status;
+  //OrtTypeInfo* type_info;
+  //auto status = OrtTypeInfo::FromOrtValue(*v, &type_info);
+  //if (status != nullptr)
+  //  return status;
 
-  *out = type_info->type;
-  OrtApis::ReleaseTypeInfo(type_info);
-  return nullptr;
+  //*out = type_info->type;
+  //OrtApis::ReleaseTypeInfo(type_info);
+  //return nullptr;
+
+  onnxruntime::MLDataType type = v->Type();
+  if (type == nullptr) {
+    *out = ONNX_TYPE_UNKNOWN;
+    return nullptr;
+  }
+
+  // GetType<Tensor> and GetType<SparseTensor> do not have TypeProto populated because they return a static
+  // TensorBase/SparseTensorBase instances, but other types are real MLDataTypes and they do have real protos
+  // unless they are primitive data types, in which case we as before return them not implemented
+  // however, this way we can support Opaque and we can avoid excessive calls to GetType()
+  if (type->IsTensorType()) {
+    *out = ONNX_TYPE_TENSOR;
+    return nullptr;
+  }
+
+  if (type->IsSparseTensorType()) {
+    *out = ONNX_TYPE_SPARSETENSOR;
+    return nullptr;
+  }
+
+  if (type->IsTensorSequenceType()) {
+    *out = ONNX_TYPE_SEQUENCE;
+    return nullptr;
+  }
+
+  const auto* type_proto = type->GetTypeProto();
+  if (type_proto != nullptr) {
+    // Place Opaque first as tensors will be mostly handled above and maps and sequences are not common
+    switch (type_proto->value_case()) {
+      case onnx::TypeProto::kOpaqueType: {
+        *out = ONNX_TYPE_OPAQUE;
+        return nullptr;
+      }
+      case onnx::TypeProto::kMapType: {
+        *out = ONNX_TYPE_MAP;
+        return nullptr;
+      }
+      case onnx::TypeProto::kSequenceType: {
+        *out = ONNX_TYPE_SEQUENCE;
+        return nullptr;
+      }
+      // Real Tensor support
+      case onnx::TypeProto::kTensorType:
+      case onnx::TypeProto::kSparseTensorType: {
+        return OrtApis::CreateStatus(ORT_FAIL, "Tensor types should have been handled already");
+      }
+      default:
+        // NOT_IMPLEMENTED
+        break;
+    }
+  }
+
+  return OrtApis::CreateStatus(ORT_NOT_IMPLEMENTED, "not implemented");
   API_IMPL_END
 }
 

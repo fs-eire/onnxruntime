@@ -546,6 +546,9 @@ ORT_API_STATUS_IMPL(OrtApis::Run, _Inout_ OrtSession* sess,
                     _In_ const char* const* input_names, _In_ const OrtValue* const* input, size_t input_len,
                     _In_ const char* const* output_names1, size_t output_names_len, _Outptr_ OrtValue** output) {
   API_IMPL_BEGIN
+
+  // auto s1 = std::chrono::high_resolution_clock::now();
+
   auto session = reinterpret_cast<::onnxruntime::InferenceSession*>(sess);
   const int queue_id = 0;
 
@@ -582,12 +585,14 @@ ORT_API_STATUS_IMPL(OrtApis::Run, _Inout_ OrtSession* sess,
     }
   }
   Status status;
+  //auto s2 = std::chrono::high_resolution_clock::now();
   if (run_options == nullptr) {
     OrtRunOptions op;
     status = session->Run(op, feed_names, feeds, output_names, &fetches);
   } else {
     status = session->Run(*run_options, feed_names, feeds, output_names, &fetches);
   }
+  //int64_t e = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - s2).count());
 
   if (!status.IsOK())
     return ToOrtStatus(status);
@@ -597,6 +602,11 @@ ORT_API_STATUS_IMPL(OrtApis::Run, _Inout_ OrtSession* sess,
       value.Fence()->BeforeUsingAsInput(onnxruntime::kCpuExecutionProvider, queue_id);
     if (output[i] == nullptr) {
       output[i] = new OrtValue(value);
+
+      //if (i == 0) {
+      //  int64_t e = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - s1).count());
+      //  output[0]->GetMutable<Tensor>()->MutableData<int64_t>()[0] = e;
+      //}
     }
   }
   return nullptr;
