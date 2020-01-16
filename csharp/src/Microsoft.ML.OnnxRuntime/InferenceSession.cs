@@ -198,6 +198,36 @@ namespace Microsoft.ML.OnnxRuntime
 
         }
 
+        public void Run(
+            IReadOnlyCollection<string> inputNames,
+            IReadOnlyCollection<PinnedOnnxValue> inputValues,
+            IReadOnlyCollection<string> outputNames,
+            IReadOnlyCollection<PinnedOnnxValue> outputValues)
+        {
+            Run(inputNames, inputValues, outputNames, outputValues, _builtInRunOptions);
+        }
+
+        public void Run(
+            IReadOnlyCollection<string> inputNames,
+            IReadOnlyCollection<PinnedOnnxValue> inputValues,
+            IReadOnlyCollection<string> outputNames,
+            IReadOnlyCollection<PinnedOnnxValue> outputValues,
+            RunOptions options)
+        {
+            IntPtr status = NativeMethods.OrtRun(
+                                                this._nativeHandle,
+                                                options.Handle,
+                                                inputNames.ToArray(),
+                                                inputValues.Select(i => i.Value).ToArray(),
+                                                (UIntPtr)(inputValues.Count),
+                                                outputNames.ToArray(),
+                                                (UIntPtr)outputNames.Count,
+                                                outputValues.Select(i => i.Value).ToArray() /* An array of output value pointers. Array must be allocated by the caller */
+                                                );
+
+            NativeApiStatus.VerifySuccess(status);
+        }
+
         //TODO: kept internal until implemented
         internal ModelMetadata ModelMetadata
         {
@@ -429,7 +459,7 @@ namespace Microsoft.ML.OnnxRuntime
             }
             if (valueType != OnnxValueType.ONNX_TYPE_TENSOR && valueType != OnnxValueType.ONNX_TYPE_SPARSETENSOR)
             {
-                return new NodeMetadata(valueType, new int[] { }, new string[] { },  typeof(NamedOnnxValue));
+                return new NodeMetadata(valueType, new int[] { }, new string[] { }, typeof(NamedOnnxValue));
             }
 
             IntPtr tensorInfo;
@@ -467,7 +497,7 @@ namespace Microsoft.ML.OnnxRuntime
             {
                 symbolicDimensions[i] = Marshal.PtrToStringAnsi(dimensionNamePtrs[i]); //assumes charset = ANSI
             }
-          
+
             return new NodeMetadata(valueType, intDimensions, symbolicDimensions, dotnetType);
         }
 
