@@ -8,8 +8,10 @@
 
 namespace onnxruntime {
 
+template <typename T>
 struct PrepareContext;
 
+template <typename T>
 class NonMaxSuppressionBase {
  protected:
   explicit NonMaxSuppressionBase(const OpKernelInfo& info) {
@@ -17,11 +19,11 @@ class NonMaxSuppressionBase {
     ORT_ENFORCE(0 == center_point_box_ || 1 == center_point_box_, "center_point_box only support 0 or 1");
   }
 
-  static Status PrepareCompute(OpKernelContext* ctx, PrepareContext& pc);
-  static Status GetThresholdsFromInputs(const PrepareContext& pc,
+  static Status PrepareCompute(OpKernelContext* ctx, PrepareContext<T>& pc);
+  static Status GetThresholdsFromInputs(const PrepareContext<T>& pc,
                                         int64_t& max_output_boxes_per_class,
-                                        float& iou_threshold,
-                                        float& score_threshold);
+                                        T* iou_threshold,
+                                        T* score_threshold);
 
   int64_t GetCenterPointBox() const {
     return center_point_box_;
@@ -31,7 +33,7 @@ class NonMaxSuppressionBase {
   int64_t center_point_box_;
 };
 
-class NonMaxSuppression final : public OpKernel, public NonMaxSuppressionBase {
+class NonMaxSuppression final : public OpKernel, public NonMaxSuppressionBase<float> {
  public:
   explicit NonMaxSuppression(const OpKernelInfo& info) : OpKernel(info), NonMaxSuppressionBase(info) {
   }

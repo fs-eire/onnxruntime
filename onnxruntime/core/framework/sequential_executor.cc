@@ -115,6 +115,15 @@ Status SequentialExecutor::Execute(const SessionState& session_state, const std:
       sync_time_begin = session_state.Profiler().StartTime();
     }
 
+    // if (node.Name() == "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/PadOrClipBoxList/cond_3/sub") {
+    //   raise(SIGINT);
+    // }
+
+    // if (node.Name() == "Range_456") {
+    //   raise(SIGINT);
+    // }
+
+
     // sync before compute
     int queue_id = p_op_kernel->KernelDef().ExecQueueId();
     if (seq_exec_plan.NodeHasFence(node_index)) {

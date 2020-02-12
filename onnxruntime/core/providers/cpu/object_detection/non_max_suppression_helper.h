@@ -19,15 +19,16 @@
 
 namespace onnxruntime {
 
+template <typename T>
 struct PrepareContext {
-  const float* boxes_data_ = nullptr;
+  const T* boxes_data_ = nullptr;
   int64_t boxes_size_ = 0ll;
-  const float* scores_data_ = nullptr;
+  const T* scores_data_ = nullptr;
   int64_t scores_size_ = 0ll;
   // The below are ptrs since they cab be device specific
   const int64_t* max_output_boxes_per_class_ = nullptr;
-  const float* score_threshold_ = nullptr;
-  const float* iou_threshold_ = nullptr;
+  const T* score_threshold_ = nullptr;
+  const T* iou_threshold_ = nullptr;
   int64_t num_batches_ = 0;
   int64_t num_classes_ = 0;
   int64_t num_boxes_ = 0;
@@ -48,8 +49,9 @@ namespace cuda {
 #endif
 namespace nms_helpers {
 
+template <typename T>
 ORT_DEVICE
-inline void MaxMin(float lhs, float rhs, float& min, float& max) {
+inline void MaxMin(T lhs, T rhs, T& min, T& max) {
   if (lhs >= rhs) {
     min = rhs;
     max = lhs;
@@ -59,20 +61,21 @@ inline void MaxMin(float lhs, float rhs, float& min, float& max) {
   }
 }
 
+template <typename T>
 ORT_DEVICE
-inline bool SuppressByIOU(const float* boxes_data, int64_t box_index1, int64_t box_index2,
-                          int64_t center_point_box, float iou_threshold) {
-  float x1_min{};
-  float y1_min{};
-  float x1_max{};
-  float y1_max{};
-  float x2_min{};
-  float y2_min{};
-  float x2_max{};
-  float y2_max{};
+inline bool SuppressByIOU(const T* boxes_data, int64_t box_index1, int64_t box_index2,
+                          int64_t center_point_box, T iou_threshold) {
+  T x1_min{};
+  T y1_min{};
+  T x1_max{};
+  T y1_max{};
+  T x2_min{};
+  T y2_min{};
+  T x2_max{};
+  T y2_max{};
 
-  const float* box1 = boxes_data + 4 * box_index1;
-  const float* box2 = boxes_data + 4 * box_index2;
+  const T* box1 = boxes_data + 4 * box_index1;
+  const T* box2 = boxes_data + 4 * box_index2;
   // center_point_box_ only support 0 or 1
   if (0 == center_point_box) {
     // boxes data format [y1, x1, y2, x2],
@@ -82,10 +85,10 @@ inline bool SuppressByIOU(const float* boxes_data, int64_t box_index1, int64_t b
     MaxMin(box2[0], box2[2], y2_min, y2_max);
   } else {
     // 1 == center_point_box_ => boxes data format [x_center, y_center, width, height]
-    float box1_width_half = box1[2] / 2;
-    float box1_height_half = box1[3] / 2;
-    float box2_width_half = box2[2] / 2;
-    float box2_height_half = box2[3] / 2;
+    T box1_width_half = box1[2] / (T)2;
+    T box1_height_half = box1[3] / (T)2;
+    T box2_width_half = box2[2] / (T)2;
+    T box2_height_half = box2[3] / (T)2;
 
     x1_min = box1[0] - box1_width_half;
     x1_max = box1[0] + box1_width_half;
@@ -98,27 +101,27 @@ inline bool SuppressByIOU(const float* boxes_data, int64_t box_index1, int64_t b
     y2_max = box2[1] + box2_height_half;
   }
 
-  const float intersection_x_min = HelperMax(x1_min, x2_min);
-  const float intersection_y_min = HelperMax(y1_min, y2_min);
-  const float intersection_x_max = HelperMin(x1_max, x2_max);
-  const float intersection_y_max = HelperMin(y1_max, y2_max);
+  const T intersection_x_min = HelperMax(x1_min, x2_min);
+  const T intersection_y_min = HelperMax(y1_min, y2_min);
+  const T intersection_x_max = HelperMin(x1_max, x2_max);
+  const T intersection_y_max = HelperMin(y1_max, y2_max);
 
-  const float intersection_area = HelperMax(intersection_x_max - intersection_x_min, .0f) *
-                                  HelperMax(intersection_y_max - intersection_y_min, .0f);
+  const T intersection_area = HelperMax(intersection_x_max - intersection_x_min, (T).0f) *
+                              HelperMax(intersection_y_max - intersection_y_min, (T).0f);
 
-  if (intersection_area <= .0f) {
+  if (intersection_area <= (T).0f) {
     return false;
   }
 
-  const float area1 = (x1_max - x1_min) * (y1_max - y1_min);
-  const float area2 = (x2_max - x2_min) * (y2_max - y2_min);
-  const float union_area = area1 + area2 - intersection_area;
+  const T area1 = (x1_max - x1_min) * (y1_max - y1_min);
+  const T area2 = (x2_max - x2_min) * (y2_max - y2_min);
+  const T union_area = area1 + area2 - intersection_area;
 
-  if (area1 <= .0f || area2 <= .0f || union_area <= .0f) {
+  if (area1 <= (T).0f || area2 <= (T).0f || union_area <= (T).0f) {
     return false;
   }
 
-  const float intersection_over_union = intersection_area / union_area;
+  const T intersection_over_union = intersection_area / union_area;
 
   return intersection_over_union > iou_threshold;
 }

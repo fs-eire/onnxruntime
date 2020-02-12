@@ -11,8 +11,9 @@
 namespace onnxruntime {
 namespace cuda {
 
-struct NonMaxSuppression final : public CudaKernel, public NonMaxSuppressionBase {
-  explicit NonMaxSuppression(const OpKernelInfo& info) : CudaKernel(info), NonMaxSuppressionBase(info) {
+template <typename T>
+struct NonMaxSuppression final : public CudaKernel, public NonMaxSuppressionBase<T> {
+  explicit NonMaxSuppression(const OpKernelInfo& info) : CudaKernel(info), NonMaxSuppressionBase<T>(info) {
   }
 
   Status ComputeInternal(OpKernelContext* context) const override;

@@ -35,16 +35,24 @@ ONNX_OPERATOR_KERNEL_EX(
 
 using namespace nms_helpers;
 
+#define SPECIALIZED_BASE_IMPL(T)                                             \
+template Status NonMaxSuppressionBase<T>::PrepareCompute(OpKernelContext* ctx, PrepareContext<T>& pc); \
+template Status NonMaxSuppressionBase<T>::GetThresholdsFromInputs(const PrepareContext<T>& pc,         \
+                                                         int64_t& max_output_boxes_per_class,          \
+                                                         T* iou_threshold,                             \
+                                                         T* score_threshold);
+
 // This works for both CPU and GPU.
 // CUDA kernel declare OrtMemTypeCPUInput for max_output_boxes_per_class(2), iou_threshold(3) and score_threshold(4)
-Status NonMaxSuppressionBase::PrepareCompute(OpKernelContext* ctx, PrepareContext& pc) {
+template <typename T>
+Status NonMaxSuppressionBase<T>::PrepareCompute(OpKernelContext* ctx, PrepareContext<T>& pc) {
   const auto* boxes_tensor = ctx->Input<Tensor>(0);
   ORT_ENFORCE(boxes_tensor);
-  pc.boxes_data_ = boxes_tensor->Data<float>();
+  pc.boxes_data_ = boxes_tensor->Data<T>();
 
   const auto* scores_tensor = ctx->Input<Tensor>(1);
   ORT_ENFORCE(scores_tensor);
-  pc.scores_data_ = scores_tensor->Data<float>();
+  pc.scores_data_ = scores_tensor->Data<T>();
 
   const auto num_inputs = ctx->InputCount();
 
@@ -58,14 +66,14 @@ Status NonMaxSuppressionBase::PrepareCompute(OpKernelContext* ctx, PrepareContex
   if (num_inputs > 3) {
     const auto* iou_threshold_tensor = ctx->Input<Tensor>(3);
     if (iou_threshold_tensor != nullptr) {
-      pc.iou_threshold_ = iou_threshold_tensor->Data<float>();
+      pc.iou_threshold_ = iou_threshold_tensor->Data<T>();
     }
   }
 
   if (num_inputs > 4) {
     const auto* score_threshold_tensor = ctx->Input<Tensor>(4);
     if (score_threshold_tensor != nullptr) {
-      pc.score_threshold_ = score_threshold_tensor->Data<float>();
+      pc.score_threshold_ = score_threshold_tensor->Data<T>();
     }
   }
 
@@ -90,28 +98,36 @@ Status NonMaxSuppressionBase::PrepareCompute(OpKernelContext* ctx, PrepareContex
   return Status::OK();
 }
 
-Status NonMaxSuppressionBase::GetThresholdsFromInputs(const PrepareContext& pc,
-                                                      int64_t& max_output_boxes_per_class,
-                                                      float& iou_threshold,
-                                                      float& score_threshold) {
+bool IsValidIouThreshold(MLFloat16 * /* iou_threshold */) { return true; }
+bool IsValidIouThreshold(float * iou_threshold) { return *iou_threshold >= .0f && *iou_threshold <= 1.0f; }
+
+template <typename T>
+Status NonMaxSuppressionBase<T>::GetThresholdsFromInputs(const PrepareContext<T>& pc,
+                                                         int64_t& max_output_boxes_per_class,
+                                                         T* iou_threshold,
+                                                         T* score_threshold) {
   if (pc.max_output_boxes_per_class_ != nullptr) {
     max_output_boxes_per_class = std::max<int64_t>(*pc.max_output_boxes_per_class_, 0);
   }
 
   if (pc.iou_threshold_ != nullptr) {
-    iou_threshold = *pc.iou_threshold_;
-    ORT_RETURN_IF_NOT((iou_threshold >= 0 && iou_threshold <= 1.f), "iou_threshold must be in range [0, 1].");
+    *iou_threshold = *pc.iou_threshold_;
+    // TODO: this comparasion may be wrong for MLFloat16, currently we skip it
+    ORT_RETURN_IF_NOT(IsValidIouThreshold(iou_threshold), "iou_threshold must be in range [0, 1].");
   }
 
   if (pc.score_threshold_ != nullptr) {
-    score_threshold = *pc.score_threshold_;
+    *score_threshold = *pc.score_threshold_;
   }
 
   return Status::OK();
 }
 
+SPECIALIZED_BASE_IMPL(float)
+SPECIALIZED_BASE_IMPL(MLFloat16)
+
 Status NonMaxSuppression::Compute(OpKernelContext* ctx) const {
-  PrepareContext pc;
+  PrepareContext<float> pc;
   auto ret = PrepareCompute(ctx, pc);
   ORT_RETURN_IF_NOT(ret.IsOK(), ret.ErrorMessage());
 
@@ -119,7 +135,7 @@ Status NonMaxSuppression::Compute(OpKernelContext* ctx) const {
   float iou_threshold = .0f;
   float score_threshold = .0f;
 
-  ret = GetThresholdsFromInputs(pc, max_output_boxes_per_class, iou_threshold, score_threshold);
+  ret = GetThresholdsFromInputs(pc, max_output_boxes_per_class, &iou_threshold, &score_threshold);
   ORT_RETURN_IF_NOT(ret.IsOK(), ret.ErrorMessage());
 
   if (0 == max_output_boxes_per_class) {

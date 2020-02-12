@@ -116,6 +116,11 @@ class TypeBindingResolver {
 bool KernelRegistry::VerifyKernelDef(const onnxruntime::Node& node,
                                      const KernelDef& kernel_def,
                                      std::string& error_str) {
+    // if (node.Name() == "Resize_316") {
+    //   raise(SIGINT);
+    // }
+
+
   // check if version matches
   int kernel_start_version;
   int kernel_end_version;

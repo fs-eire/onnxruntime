@@ -583,6 +583,8 @@ void DumpNodeInputs(const OpKernelContext& context, const Node& node) {
     if (input_defs[i]->Exists()) {
       std::cout << "Input " << i << " Name: " << input_defs[i]->Name();
 
+      auto match = input_defs[i]->Name() == "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/PadOrClipBoxList/cond_1/cond/sub/x:0";
+
       const auto* type = context.InputType(i);
 
       if (type) {
@@ -591,6 +593,7 @@ void DumpNodeInputs(const OpKernelContext& context, const Node& node) {
           const auto& shape = tensor.Shape();
 
           std::cout << " Shape: " << shape << "\n";
+          if (match) std::cout << tensor.Location() << "\n";
         } else {
           std::cout << " is non-tensor type.\n";
         }
@@ -602,6 +605,8 @@ void DumpNodeInputs(const OpKernelContext& context, const Node& node) {
       std::cout << "Input " << i << " is optional and was not provided.\n";
     }
   }
+
+  std::cout << std::flush;
 }
 
 void DumpNodeOutputs(OpKernelContext& context, const Node& node, const SessionState& session_state) {

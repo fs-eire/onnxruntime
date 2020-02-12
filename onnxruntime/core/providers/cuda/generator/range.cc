@@ -20,6 +20,7 @@ ONNX_OPERATOR_KERNEL_EX(
     kCudaExecutionProvider,
     KernelDefBuilder().TypeConstraint("T", {DataTypeImpl::GetTensorType<float>(),
                                             DataTypeImpl::GetTensorType<double>(),
+                                            DataTypeImpl::GetTensorType<MLFloat16>(),
                                             DataTypeImpl::GetTensorType<int16_t>(),
                                             DataTypeImpl::GetTensorType<int32_t>(),
                                             DataTypeImpl::GetTensorType<int64_t>()}),
@@ -49,18 +50,20 @@ static Status ComputeRange(OpKernelContext* ctx) {
 
   // Start, Limit and Delta are stored in GPU. So we need copy it to CPU to read.
   // It is better to store these tensors in pinned memory or CPU for better performance.
-  T start;
-  CUDA_RETURN_IF_ERROR(cudaMemcpy(&start, start_tensor.template Data<T>(), sizeof(T), cudaMemcpyDeviceToHost));
+  typedef typename ToCudaType<T>::MappedType CudaT;
 
-  T limit;
-  CUDA_RETURN_IF_ERROR(cudaMemcpy(&limit, limit_tensor.template Data<T>(), sizeof(T), cudaMemcpyDeviceToHost));
+  CudaT start;
+  CUDA_RETURN_IF_ERROR(cudaMemcpy(&start, start_tensor.template Data<T>(), sizeof(CudaT), cudaMemcpyDeviceToHost));
 
-  T delta = T(1);
+  CudaT limit;
+  CUDA_RETURN_IF_ERROR(cudaMemcpy(&limit, limit_tensor.template Data<T>(), sizeof(CudaT), cudaMemcpyDeviceToHost));
+
+  CudaT delta = ToCudaType<T>::FromFloat(1.0f);
   if (delta_tensor_ptr != nullptr) {
-    CUDA_RETURN_IF_ERROR(cudaMemcpy(&delta, delta_tensor_ptr->template Data<T>(), sizeof(T), cudaMemcpyDeviceToHost));
+    CUDA_RETURN_IF_ERROR(cudaMemcpy(&delta, delta_tensor_ptr->template Data<T>(), sizeof(CudaT), cudaMemcpyDeviceToHost));
   }
 
-  if (delta == T(0)) {
+  if (delta == CudaT(0.0)) {
     return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT, "delta in Range operator can not be zero!");
   }
 
@@ -68,7 +71,7 @@ static Status ComputeRange(OpKernelContext* ctx) {
   if (count <= 0)
     count = 0;
   TensorShape shape = {static_cast<int64_t>(count)};
-  T* y = ctx->Output(0, shape)->template MutableData<T>();
+  CudaT* y = reinterpret_cast<CudaT *>(ctx->Output(0, shape)->template MutableData<T>());
 
   if (count > 0) {
     if (!RangeImpl(start, delta, count, y)) {
@@ -98,7 +101,7 @@ Status Range::ComputeInternal(OpKernelContext* ctx) const {
   }
 
   utils::MLTypeCallDispatcherRet<Status, cuda_range_internal::CallCudaRangeImpl, int32_t,
-                                 float, int64_t, double, int16_t>
+                                 float, int64_t, double, int16_t, MLFloat16>
       t_disp(input_tensor->GetElementType());
   return t_disp.Invoke(ctx);
 }

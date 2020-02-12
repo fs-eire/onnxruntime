@@ -186,12 +186,30 @@ Status GraphPartitioner::Partition(Graph& graph, bool export_dll, FuncManager& f
     }
   }
 
+  // {
+  //   GraphViewer graph_viewer(graph);
+  //   auto& order = graph_viewer.GetNodesInTopologicalOrder();
+
+  //   for (NodeIndex i : order) {
+  //     auto* node = graph.GetNode(i);
+  //     if (!node) {
+  //       continue;
+  //     }
+
+  //     if (node->GetFunctionBody() != nullptr) {
+  //       auto &x = node->GetFunctionBody()->Body();
+  //       (void)(x);
+  //     }
+  //   }
+  // }
+
   ORT_RETURN_IF_ERROR(graph.Resolve());
 
   // To see if the node with no provider can be inlined. If one such nodes can be
   // successfully inlined, we re-run the partitioner on the modified graph.
   bool inline_flag = false;
   for (auto& node : graph.Nodes()) {
+    //if (node.Name() == "Range_648") raise(SIGINT);
     if (node.GetExecutionProviderType().empty()) {
       auto node_func = node.GetFunctionBody();
       if (nullptr == node_func) {

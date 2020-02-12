@@ -33,8 +33,9 @@ using namespace nms_helpers;
 
 namespace {
 
+template <typename T>
 struct __align__(16) Box {
-  float x1, y1, x2, y2;
+  T x1, y1, x2, y2;
 };
 
 // This is the width of the bitmask for masking boxes for each thread.
@@ -57,7 +58,7 @@ constexpr int kNmsChunkSize = 2000;
 
 // Check whether two boxes have an IoU greater than threshold.
 template <typename T>
-__device__ inline bool OverThreshold(const Box* a, const Box* b,
+__device__ inline bool OverThreshold(const Box<T>* a, const Box<T>* b,
                                      const float a_area,
                                      const T iou_threshold) {
   const float b_area = (b->x2 - b->x1) * (b->y2 - b->y1);
@@ -131,12 +132,13 @@ __global__ void NMSReduce(const int* bitmask, const int bit_mask_len,
 // given box. Each thread processes a kNmsBoxesPerThread boxes per stride, and
 // each box has bitmask of overlaps of length bit_mask_len.
 //
+template <typename T>
 __launch_bounds__(kNmsBlockDim* kNmsBlockDim, 4) __global__
     void NMSKernel(
         const int64_t center_point_box,
-        const Box* d_desc_sorted_boxes,
+        const Box<T>* d_desc_sorted_boxes,
         const int num_boxes,
-        const float iou_threshold,
+        const T iou_threshold,
         const int bit_mask_len,
         int* d_delete_mask) {
   for (int i_block_offset = blockIdx.x * blockDim.x; i_block_offset < num_boxes;
@@ -160,7 +162,7 @@ __launch_bounds__(kNmsBlockDim* kNmsBlockDim, 4) __global__
           const int j = j_thread_offset + ib;
           if (i >= j || i >= num_boxes || j >= num_boxes) continue;
           valid = true;
-          if (SuppressByIOU(reinterpret_cast<const float*>(d_desc_sorted_boxes),
+          if (SuppressByIOU(reinterpret_cast<const T*>(d_desc_sorted_boxes),
                             i, j, center_point_box, iou_threshold)) {
             // we have score[j] <= score[i].
             above_threshold |= (1U << ib);
@@ -229,11 +231,12 @@ __global__ void NormalizeOutput(const int num_elements, const int* original, int
   }
 }
 
+template <typename T>
 Status NmsGpu(std::function<IAllocatorUniquePtr<void>(size_t)> allocator,
               const int64_t center_point_box,
-              const float* d_sorted_boxes_float_ptr,
+              const T* d_sorted_boxes_float_ptr,
               const int num_boxes,
-              const float iou_threshold,
+              const T iou_threshold,
               int* d_selected_indices,
               int* h_nkeep,
               const int max_boxes) {
@@ -254,8 +257,8 @@ Status NmsGpu(std::function<IAllocatorUniquePtr<void>(size_t)> allocator,
 
   int* d_delete_mask = d_nms_mask;
   int* h_selected_count = h_nkeep;
-  const Box* d_sorted_boxes =
-      reinterpret_cast<const Box*>(d_sorted_boxes_float_ptr);
+  const Box<T>* d_sorted_boxes =
+      reinterpret_cast<const Box<T>*>(d_sorted_boxes_float_ptr);
   dim3 block_dim, thread_block;
   int num_blocks = (num_boxes + kNmsBlockDim - 1) / kNmsBlockDim;
   num_blocks = std::max(std::min(num_blocks, kNmsBlockDimMax), 1);
@@ -308,33 +311,37 @@ Status NmsGpu(std::function<IAllocatorUniquePtr<void>(size_t)> allocator,
   return Status::OK();
 }
 
+template <typename T>
 struct DeviceGreaterThan {
-  float threshold_;
-  __host__ __device__ __forceinline__ DeviceGreaterThan(float threshold)
+  T threshold_;
+  __host__ __device__ __forceinline__ DeviceGreaterThan(T threshold)
       : threshold_(threshold) {}
 
-  __host__ __device__ __forceinline__ bool operator()(const float& val) const {
+  __host__ __device__ __forceinline__ bool operator()(const T& val) const {
     return (val > threshold_);
   }
 };
 
 }  // namespace
 
+template <typename T>
 Status NonMaxSuppressionImpl(
     std::function<IAllocatorUniquePtr<void>(size_t)> allocator,
-    const PrepareContext& pc,
+    const PrepareContext<T>& pc,
     const int64_t center_point_box,
     int64_t batch_index,
     int64_t class_index,
     int max_output_boxes_per_class,
-    float iou_threshold,
-    float score_threshold,
+    T iou_threshold,
+    T score_threshold,
     IAllocatorUniquePtr<void>& selected_indices,
     int* h_number_selected) {
+  typedef typename ToCudaType<T>::MappedType CudaT;
+
   // STEP 1. Prepare data
   int num_boxes = pc.num_boxes_;
-  const float* boxes_data = pc.boxes_data_ + batch_index * num_boxes * 4;
-  const float* scores_data = pc.scores_data_ + (batch_index * pc.num_classes_ + class_index) * num_boxes;
+  const CudaT* boxes_data = pc.boxes_data_ + batch_index * num_boxes * 4;
+  const CudaT* scores_data = pc.scores_data_ + (batch_index * pc.num_classes_ + class_index) * num_boxes;
 
   // prepare temporary memory for sorting scores
 
@@ -342,12 +349,12 @@ Status NonMaxSuppressionImpl(
   size_t cub_sort_temp_storage_bytes = 0;
   CUDA_RETURN_IF_ERROR(cub::DeviceRadixSort::SortPairsDescending(
       nullptr, cub_sort_temp_storage_bytes,
-      static_cast<float*>(nullptr),  // scores
-      static_cast<float*>(nullptr),  // sorted scores
+      static_cast<CudaT*>(nullptr),      // scores
+      static_cast<CudaT*>(nullptr),      // sorted scores
       static_cast<int*>(nullptr),    // input indices
       static_cast<int*>(nullptr),    // sorted indices
       num_boxes,                     // num items
-      0, 8 * sizeof(float)           // sort all bits
+      0, 8 * sizeof(CudaT)         // sort all bits
       ));
 
   // allocate temporary memory
@@ -359,10 +366,10 @@ Status NonMaxSuppressionImpl(
   auto* d_sorted_indices = static_cast<int*>(d_sorted_indices_ptr.get());
   IAllocatorUniquePtr<void> d_selected_indices_ptr{allocator(num_boxes * sizeof(int))};
   auto* d_selected_indices = static_cast<int*>(d_selected_indices_ptr.get());
-  IAllocatorUniquePtr<void> d_sorted_scores_ptr{allocator(num_boxes * sizeof(float))};
-  auto* d_sorted_scores = static_cast<float*>(d_sorted_scores_ptr.get());
-  IAllocatorUniquePtr<void> d_sorted_boxes_ptr{allocator(num_boxes * 4 * sizeof(float))};
-  auto* d_sorted_boxes = static_cast<float*>(d_sorted_boxes_ptr.get());
+  IAllocatorUniquePtr<void> d_sorted_scores_ptr{allocator(num_boxes * sizeof(CudaT))};
+  auto* d_sorted_scores = static_cast<CudaT*>(d_sorted_scores_ptr.get());
+  IAllocatorUniquePtr<void> d_sorted_boxes_ptr{allocator(num_boxes * 4 * sizeof(CudaT))};
+  auto* d_sorted_boxes = static_cast<CudaT*>(d_sorted_boxes_ptr.get());
 
   // create sequense of indices
   int blocksPerGrid = (int)(ceil(static_cast<float>(num_boxes) / GridDim::maxThreadsPerBlock));
@@ -379,23 +386,23 @@ Status NonMaxSuppressionImpl(
       d_sorted_indices,
       num_boxes,
       0,
-      8 * sizeof(float)  // sort all bits
+      8 * sizeof(CudaT)  // sort all bits
       ));
 
   // pick sorted scores
-  const Box* original_boxes = reinterpret_cast<const Box*>(boxes_data);
-  Box* sorted_boxes = reinterpret_cast<Box*>(d_sorted_boxes);
-  IndexMultiSelect<int, Box><<<blocksPerGrid, GridDim::maxThreadsPerBlock>>>(num_boxes, d_sorted_indices, original_boxes, sorted_boxes);
+  const Box<CudaT>* original_boxes = reinterpret_cast<const Box<CudaT>*>(boxes_data);
+  Box<CudaT>* sorted_boxes = reinterpret_cast<Box<CudaT>*>(d_sorted_boxes);
+  IndexMultiSelect<int, Box<CudaT>><<<blocksPerGrid, GridDim::maxThreadsPerBlock>>>(num_boxes, d_sorted_indices, original_boxes, sorted_boxes);
   CUDA_RETURN_IF_ERROR(cudaGetLastError());
 
   // STEP 2. filter boxes by scores
   int limited_num_boxes = num_boxes;
   if (pc.score_threshold_ != nullptr) {
-    thrust::device_ptr<float> sorted_scores_device_ptr(d_sorted_scores);
+    thrust::device_ptr<CudaT> sorted_scores_device_ptr(d_sorted_scores);
     limited_num_boxes = thrust::count_if(
         sorted_scores_device_ptr,
         sorted_scores_device_ptr + num_boxes,
-        DeviceGreaterThan(score_threshold));
+        DeviceGreaterThan<CudaT>(score_threshold));
     CUDA_RETURN_IF_ERROR(cudaGetLastError());
 
     if (limited_num_boxes == 0) {
@@ -434,6 +441,22 @@ Status NonMaxSuppressionImpl(
 
   return Status::OK();
 }
+
+#define SPECIALIZED_IMPL(T)                                             \
+  template Status NonMaxSuppressionImpl<T>(                             \
+    std::function<IAllocatorUniquePtr<void>(size_t)> allocator,         \
+    const PrepareContext<T>& pc,                                        \
+    const int64_t center_point_box,                                     \
+    int64_t batch_index,                                                \
+    int64_t class_index,                                                \
+    int max_output_boxes_per_class,                                     \
+    T iou_threshold,                                                    \
+    T score_threshold,                                                  \
+    IAllocatorUniquePtr<void>& selected_indices,                        \
+    int* h_number_selected);
+
+SPECIALIZED_IMPL(float)
+SPECIALIZED_IMPL(half)
 
 }  // namespace cuda
 }  // namespace onnxruntime

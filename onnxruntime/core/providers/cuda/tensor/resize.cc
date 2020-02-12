@@ -26,7 +26,7 @@ namespace cuda {
           .InputMemoryType<OrtMemTypeCPUInput>(1)                 \
           .InputMemoryType<OrtMemTypeCPUInput>(2)                 \
           .InputMemoryType<OrtMemTypeCPUInput>(3)                 \
-          .TypeConstraint("T", DataTypeImpl::GetTensorType<T>()), \
+          .TypeConstraint("T1", DataTypeImpl::GetTensorType<T>()), \
       Resize<T>);
 
 REGISTER_KERNEL_TYPED(float)

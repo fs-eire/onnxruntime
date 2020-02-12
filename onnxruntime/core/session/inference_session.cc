@@ -595,9 +595,47 @@ common::Status InferenceSession::TransformGraph(onnxruntime::Graph& graph,
   }
 #endif
 
+  // bool foundLoop = false;
+  // {
+  //   GraphViewer graph_viewer(graph);
+  //   auto& order = graph_viewer.GetNodesInTopologicalOrder();
+
+  //   for (NodeIndex i : order) {
+  //     auto* node = graph.GetNode(i);
+  //     if (!node) {
+  //       continue;
+  //     }
+
+  //     if (node->GetFunctionBody() != nullptr) {
+  //       auto &x = node->GetFunctionBody()->Body();
+  //       (void)(x);
+  //       foundLoop = true;
+  //     }
+  //   }
+  // }
+  // if (foundLoop) raise(SIGINT);
+
   // Do partitioning based on execution providers' capability.
   GraphPartitioner partitioner(kernel_registry_manager, providers);
   ORT_RETURN_IF_ERROR_SESSIONID_(partitioner.Partition(graph, session_state.ExportDll(), session_state.GetMutableFuncMgr()));
+
+  // foundLoop = false;
+  // {
+  //   GraphViewer graph_viewer(graph);
+  //   auto& order = graph_viewer.GetNodesInTopologicalOrder();
+
+  //   for (NodeIndex i : order) {
+  //     auto* node = graph.GetNode(i);
+  //     if (!node) {
+  //       continue;
+  //     }
+
+  //     if (node->OpType() == "Loop") {
+  //       foundLoop = true;
+  //     }
+  //   }
+  // }
+  // if (foundLoop) raise(SIGINT);
 
   // apply transformers except default transformers
   // Default transformers are required for correctness and they are owned and run by inference session

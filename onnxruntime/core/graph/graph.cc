@@ -2225,6 +2225,9 @@ std::string Graph::GenerateNodeArgName(const std::string& base_name) {
     std::ostringstream str;
     str << base_name << "_" << name_generator_++;
     new_name = str.str();
+    // if (new_name.substr(14) == "_413") {
+    //   raise(SIGINT);
+    // }
   } while (node_args_.find(new_name) != node_args_.end());
   return new_name;
 }
@@ -2253,6 +2256,9 @@ Node& Graph::AddNode(const std::string& name,
                      const std::vector<NodeArg*>& output_args,
                      const NodeAttributes* attributes,
                      const std::string& domain) {
+    // if (name == "Postprocessor/BatchMultiClassNonMaxSuppression/map/while/PadOrClipBoxList/cond_3/cond/sub") {
+    //   raise(SIGINT);
+    // }
   std::vector<NodeArg*> inputs;
   std::vector<NodeArg*> outputs;
   inputs.resize(input_args.size());

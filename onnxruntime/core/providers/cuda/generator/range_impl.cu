@@ -17,7 +17,7 @@ template <typename T>
 __global__ void RangeKernel(const T start, const T delta, const int count, T* output) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index < count) {
-    output[index] = start + delta * index;
+    output[index] = start + delta * (T)index;
   }
 }
 
@@ -37,6 +37,7 @@ SPECIALIZED_IMPL(int32_t)
 SPECIALIZED_IMPL(int64_t)
 SPECIALIZED_IMPL(float)
 SPECIALIZED_IMPL(double)
+SPECIALIZED_IMPL(half)
 
 }  // namespace cuda
 }  // namespace onnxruntime

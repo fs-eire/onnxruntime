@@ -9,38 +9,43 @@
 namespace onnxruntime {
 namespace cuda {
 
-ONNX_OPERATOR_VERSIONED_KERNEL_EX(
-    NonMaxSuppression,
-    kOnnxDomain,
-    10, 10,
-    kCudaExecutionProvider,
-    KernelDefBuilder()
-        .InputMemoryType<OrtMemTypeCPUInput>(2)
-        .InputMemoryType<OrtMemTypeCPUInput>(3)
-        .InputMemoryType<OrtMemTypeCPUInput>(4),
-    NonMaxSuppression);
+#define REGISTER_KERNEL_TYPED(T)                            \
+ONNX_OPERATOR_VERSIONED_TYPED_KERNEL_EX(\
+    NonMaxSuppression,                                              \
+    kOnnxDomain,                                                    \
+    10, 10,                                                         \
+    T,                                                             \
+    kCudaExecutionProvider,                                        \
+    KernelDefBuilder()                                            \
+        .InputMemoryType<OrtMemTypeCPUInput>(2)                       \
+        .InputMemoryType<OrtMemTypeCPUInput>(3)                        \
+        .InputMemoryType<OrtMemTypeCPUInput>(4)                         \
+        .TypeConstraint("T", DataTypeImpl::GetTensorType<T>()), \
+    NonMaxSuppression<T>);                                        \
+ONNX_OPERATOR_TYPED_KERNEL_EX(                                    \
+    NonMaxSuppression,                                         \
+    kOnnxDomain,                                              \
+    11,                                                         \
+    T,                                                          \
+    kCudaExecutionProvider,                                          \
+    KernelDefBuilder()                                              \
+        .InputMemoryType<OrtMemTypeCPUInput>(2)                     \
+        .InputMemoryType<OrtMemTypeCPUInput>(3)                      \
+        .InputMemoryType<OrtMemTypeCPUInput>(4)                     \
+        .TypeConstraint("T", DataTypeImpl::GetTensorType<T>()), \
+    NonMaxSuppression<T>);
 
-ONNX_OPERATOR_KERNEL_EX(
-    NonMaxSuppression,
-    kOnnxDomain,
-    11,
-    kCudaExecutionProvider,
-    KernelDefBuilder()
-        .InputMemoryType<OrtMemTypeCPUInput>(2)
-        .InputMemoryType<OrtMemTypeCPUInput>(3)
-        .InputMemoryType<OrtMemTypeCPUInput>(4),
-    NonMaxSuppression);
-
-Status NonMaxSuppression::ComputeInternal(OpKernelContext* ctx) const {
-  PrepareContext pc;
-  auto ret = PrepareCompute(ctx, pc);
+template <typename T>
+Status NonMaxSuppression<T>::ComputeInternal(OpKernelContext* ctx) const {
+  PrepareContext<T> pc;
+  auto ret = NonMaxSuppressionBase<T>::PrepareCompute(ctx, pc);
   ORT_RETURN_IF_NOT(ret.IsOK(), ret.ErrorMessage());
 
   int64_t max_output_boxes_per_class = 0;
-  float iou_threshold = .0f;
-  float score_threshold = .0f;
+  typename ToCudaType<T>::MappedType iou_threshold = ToCudaType<T>::FromFloat(.0f);
+  typename ToCudaType<T>::MappedType score_threshold = ToCudaType<T>::FromFloat(.0f);
 
-  ret = GetThresholdsFromInputs(pc, max_output_boxes_per_class, iou_threshold, score_threshold);
+  ret = NonMaxSuppressionBase<T>::GetThresholdsFromInputs(pc, max_output_boxes_per_class, reinterpret_cast<T*>(&iou_threshold), reinterpret_cast<T*>(&score_threshold));
   ORT_RETURN_IF_NOT(ret.IsOK(), ret.ErrorMessage());
 
   if (0 == pc.num_boxes_ || 0 == max_output_boxes_per_class) {
@@ -65,10 +70,10 @@ Status NonMaxSuppression::ComputeInternal(OpKernelContext* ctx) const {
       IAllocatorUniquePtr<void> h_number_selected_ptr{AllocateBufferOnCPUPinned<void>(sizeof(int))};
       auto* h_number_selected = static_cast<int*>(h_number_selected_ptr.get());
 
-      ORT_RETURN_IF_ERROR(NonMaxSuppressionImpl(
+      ORT_RETURN_IF_ERROR(NonMaxSuppressionImpl<typename ToCudaType<T>::MappedType>(
           [this](size_t bytes) { return GetScratchBuffer<void>(bytes); },
-          pc,
-          GetCenterPointBox(),
+          reinterpret_cast<const PrepareContext<typename ToCudaType<T>::MappedType>&>(pc),
+          NonMaxSuppressionBase<T>::GetCenterPointBox(),
           batch_index,
           class_index,
           int_max_output_boxes_per_class,
@@ -133,6 +138,13 @@ Status NonMaxSuppression::ComputeInternal(OpKernelContext* ctx) const {
 
   return Status::OK();
 }
+
+#define SPECIALIZED_COMPUTE(T) \
+  REGISTER_KERNEL_TYPED(T)     \
+  template Status NonMaxSuppression<T>::ComputeInternal(OpKernelContext* ctx) const;
+
+SPECIALIZED_COMPUTE(float)
+SPECIALIZED_COMPUTE(MLFloat16)
 
 }  // namespace cuda
 }  // namespace onnxruntime

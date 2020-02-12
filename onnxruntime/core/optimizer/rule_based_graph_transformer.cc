@@ -63,6 +63,10 @@ Status RuleBasedGraphTransformer::ApplyImpl(Graph& graph, bool& modified, int gr
     // Stop further rule application for the current node, if the node gets removed by a rule.
     const std::vector<std::reference_wrapper<const RewriteRule>>* rules = nullptr;
 
+    // if (node->Name() == "Conv_280") {
+    //   raise(SIGINT);
+    // }
+
     rules = GetRewriteRulesForOpType(node->OpType());
     if (rules) {
       ORT_RETURN_IF_ERROR(ApplyRulesOnNode(graph, *node, *rules, rule_effect, logger));
