@@ -84,7 +84,8 @@ public:
 #endif
 
             if (_BaseBuffer == nullptr) {
-                ORT_THROW_EX(std::bad_alloc);
+                //ORT_THROW_EX(std::bad_alloc);
+                abort();
             }
 
             //
@@ -98,7 +99,8 @@ public:
             }
 #else
             if (mprotect(_BaseBuffer, BytesToAllocate, PROT_READ | PROT_WRITE) != 0) {
-                ORT_THROW_EX(std::bad_alloc);
+                //ORT_THROW_EX(std::bad_alloc);
+                abort();
             }
 #endif
 
@@ -199,6 +201,10 @@ public:
         )
     {
     }
+
+    virtual
+    void
+    Benchmark_Prepare(size_t, size_t, size_t, float **, float **, float **, float **) {};
 };
 
 template<typename T, bool Packed>
@@ -227,6 +233,33 @@ public:
     {
         MlasGemm(TransA, TransB, M, N, K, T(alpha), A, lda, B, ldb, T(beta), C, ldc, threadpool);
     }
+
+    void
+    Benchmark(CBLAS_TRANSPOSE transA, CBLAS_TRANSPOSE transB)
+    {
+        const size_t M = 128, N = 768, K = 768;
+
+        size_t lda = transA == CblasNoTrans ? K : M;
+        size_t ldb = transB == CblasNoTrans ? N : K;
+        
+        T* A, *B, *C;
+        this->Benchmark_Prepare(M, N, K, &A, &B, nullptr, &C);
+        const T alpha = (T)(1.0);
+        const T beta = (T)(0.0);
+
+
+        for (unsigned v = 0; v < 4; v++) {
+            uint64_t zstart = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+            for (unsigned k = 0; k < 2000; k++) {
+                MlasGemm(transA, transB, M, N, K, alpha, A, lda, B, ldb, beta, C, N, threadpool);
+            }
+            uint64_t zend = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+            printf("mlas time %lld\n", zend-zstart);
+        }
+    }
+
+    void
+    Benchmark_Prepare(size_t, size_t, size_t, float **, float **, float **, float **) override {}
 };
 
 template<typename T>
@@ -254,6 +287,37 @@ public:
         void* PackedB = BufferBPacked.GetBuffer(PackedBSize, true);
         MlasGemmPackB(TransB, N, K, B, ldb, PackedB);
         MlasGemm(TransA, M, N, K, T(alpha), A, lda, PackedB, T(beta), C, ldc, threadpool);
+    }
+    void
+    Benchmark(CBLAS_TRANSPOSE transA, CBLAS_TRANSPOSE transB)
+    {
+        const size_t M = 128, N = 768, K = 768;
+
+        size_t lda = transA == CblasNoTrans ? K : M;
+        size_t ldb = transB == CblasNoTrans ? N : K;
+                
+        T* A, *B, *BP, *C;
+        this->Benchmark_Prepare(M, N, K, &A, &B, &BP, &C);
+        const T alpha = (T)(1.0);
+        const T beta = (T)(0.0);
+
+        MlasGemmPackB(transB, N, K, B, ldb, BP);
+
+        for (unsigned v = 0; v < 4; v++) {
+            uint64_t zstart = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+            for (unsigned k = 0; k < 2000; k++) {
+                MlasGemm(transA, M, N, K, alpha, A, lda, BP, beta, C, N, threadpool);
+            }
+            uint64_t zend = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+            printf("mlas time %lld\n", zend-zstart);
+        }
+    }
+    void
+    Benchmark_Prepare(size_t, size_t N, size_t K, float **, float **, float **BP, float **) override {
+        if (BP) {
+            size_t PackedBSize = MlasGemmPackBSize(N, K);
+            *BP = reinterpret_cast<float *>(BufferBPacked.GetBuffer(PackedBSize, true));
+        }
     }
 
 private:
@@ -524,6 +588,15 @@ public:
             }
             printf("M %zd\n", M);
         }
+    }
+
+    void
+    Benchmark_Prepare(size_t M, size_t N, size_t K, float **A, float **B, float **BP, float **C) override
+    {
+        MlasFgemmTestBase<T, Packed>::Benchmark_Prepare(M, N, K, A, B, BP, C);
+        *A = BufferA.GetBuffer(K * M);
+        *B = BufferB.GetBuffer(N * K);
+        *C = BufferC.GetBuffer(N * M);
     }
 };
 
@@ -2868,49 +2941,18 @@ RunThreadedTests(
     onnxruntime::make_unique<MlasFgemmTest<double, false>>()->ExecuteShort();
 #endif
 
-#ifdef MLAS_SUPPORTS_GEMM_U8X8
-    printf("QGEMM U8S8=int32_t tests.\n");
-    onnxruntime::make_unique<MlasQgemmU8X8Test<int8_t, int32_t, false>>()->ExecuteShort();
-    printf("QGEMM U8S8=float tests.\n");
-    onnxruntime::make_unique<MlasQgemmU8X8Test<int8_t, float, false>>()->ExecuteShort();
-    printf("QGEMM U8U8=int32_t tests.\n");
-    onnxruntime::make_unique<MlasQgemmU8X8Test<uint8_t, int32_t, false>>()->ExecuteShort();
-    printf("QGEMM U8U8=float tests.\n");
-    onnxruntime::make_unique<MlasQgemmU8X8Test<uint8_t, float, false>>()->ExecuteShort();
-#endif
+    printf("SGEMM benchmark.\n");
+    onnxruntime::make_unique<MlasFgemmTest<float, false>>()->Benchmark(CblasNoTrans, CblasNoTrans);
+    printf("SGEMM packed benchmark.\n");
+    onnxruntime::make_unique<MlasFgemmTest<float, true>>()->Benchmark(CblasNoTrans, CblasNoTrans);
 
-#ifdef MLAS_SUPPORTS_PACKED_GEMM_U8X8
-    if (MlasGemmPackBSize(128, 128, true) > 0) {
-        printf("QGEMM U8S8=int32_t packed tests.\n");
-        onnxruntime::make_unique<MlasQgemmU8X8Test<int8_t, int32_t, true>>()->ExecuteShort();
-        printf("QGEMM U8S8=float packed tests.\n");
-        onnxruntime::make_unique<MlasQgemmU8X8Test<int8_t, float, true>>()->ExecuteShort();
-    }
-    if (MlasGemmPackBSize(128, 128, false) > 0) {
-        printf("QGEMM U8U8=int32_t packed tests.\n");
-        onnxruntime::make_unique<MlasQgemmU8X8Test<uint8_t, int32_t, true>>()->ExecuteShort();
-        printf("QGEMM U8U8=float packed tests.\n");
-        onnxruntime::make_unique<MlasQgemmU8X8Test<uint8_t, float, true>>()->ExecuteShort();
-    }
-#endif
+    // printf("Conv2D tests.\n");
+    // onnxruntime::make_unique<MlasConv2DTest>()->ExecuteShort();
+    // if (MlasNchwcGetBlockSize() > 1) {
+    //     onnxruntime::make_unique<MlasNchwcConv2DTest>()->ExecuteShort();
+    // }
 
-    printf("Conv2D tests.\n");
-    onnxruntime::make_unique<MlasConv2DTest>()->ExecuteShort();
-    if (MlasNchwcGetBlockSize() > 1) {
-        onnxruntime::make_unique<MlasNchwcConv2DTest>()->ExecuteShort();
-    }
 
-    printf("Pool2D tests.\n");
-    onnxruntime::make_unique<MlasPool2DTest>()->ExecuteShort();
-    if (MlasNchwcGetBlockSize() > 1) {
-        onnxruntime::make_unique<MlasNchwcPool2DTest>()->ExecuteShort();
-    }
-
-    printf("Pool3D tests.\n");
-    onnxruntime::make_unique<MlasPool3DTest>()->ExecuteShort();
-
-    printf("Softmax tests.\n");
-    onnxruntime::make_unique<MlasSoftmaxTest>()->ExecuteShort();
 }
 
 int
@@ -2926,52 +2968,37 @@ main(
     //
 
     RunThreadedTests();
+    printf("Done.\n");
 
-#if !defined(MLAS_NO_ONNXRUNTIME_THREADPOOL)
-
-    //
-    // Run threaded tests using the thread pool.
-    //
-
-    threadpool = new onnxruntime::concurrency::ThreadPool(
-        &onnxruntime::Env::Default(), onnxruntime::ThreadOptions(), nullptr, 2, true);
-
-    RunThreadedTests();
-
-    delete threadpool;
-
+#ifdef MLAS_TARGET_AMD64
+    printf("MLAS_TARGET_AMD64\n");
 #endif
 
-    //
-    // Run remaining tests that do not use the thread pool.
-    //
+#ifdef MLAS_TARGET_IX86
+    printf("MLAS_TARGET_IX86\n");
+#endif
 
-    printf("Activation tests.\n");
-    onnxruntime::make_unique<MlasActivationTest>()->ExecuteShort();
+#ifdef MLAS_TARGET_ARM64
+    printf("MLAS_TARGET_ARM64\n");
+#endif
 
-    printf("Transcendental tests.\n");
-    onnxruntime::make_unique<MlasComputeExpTest>()->ExecuteShort();
+#ifdef MLAS_TARGET_ARM
+    printf("MLAS_TARGET_ARM\n");
+#endif
 
-    printf("MinMaxElements tests.\n");
-    onnxruntime::make_unique<MlasFindMinMaxElementsTest>()->ExecuteShort();
+#ifdef MLAS_TARGET_POWER
+    printf("MLAS_TARGET_POWER\n");
+#endif
 
-    printf("ReorderOutput tests.\n");
-    if (MlasNchwcGetBlockSize() > 1) {
-        onnxruntime::make_unique<MlasReorderOutputTest>()->ExecuteShort();
-    }
+#ifdef MLAS_TARGET_WASM
+    printf("MLAS_TARGET_WASM\n");
+#endif
 
-    printf("QLinearAdd tests.\n");
-    onnxruntime::make_unique<MlasQLinearBinaryOpTest>(
-        [](float a, float b) { return a + b; }, "+", MlasQLinearAdd<int8_t>, MlasQLinearAdd<uint8_t>)->ExecuteShort();
+#ifdef MLAS_TARGET_WASMSIMD
+    printf("MLAS_TARGET_WASMSIMD\n");
+#endif
 
-    printf("QLinearMul tests.\n");
-    onnxruntime::make_unique<MlasQLinearBinaryOpTest>(
-        [] (float a, float b) { return a * b; }, "*", MlasQLinearMul<int8_t>, MlasQLinearMul<uint8_t>)->ExecuteShort();
-
-    printf("MlasScaleOutput tests.\n");
-    onnxruntime::make_unique<MlasScaleOutputTest>()->ExecuteShort();
-
-    printf("Done.\n");
+    printf("hello\n");
 
     return 0;
 }

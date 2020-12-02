@@ -1,0 +1,1 @@
+node --experimental-wasm-simd -e "require('./out_wasm_main')();"
