@@ -73,7 +73,7 @@ if (!fs.existsSync(EMCC_BIN)) {
 
     // One-time installation: 'emsdk install latest'
 
-    const install = spawnSync(`${EMSDK_BIN} install latest`, { shell: true, stdio: 'inherit', cwd: DEPS_EMSDK });
+    const install = child_process.spawnSync(`${EMSDK_BIN} install latest`, { shell: true, stdio: 'inherit', cwd: EMSDK_FOLDER });
     if (install.status !== 0) {
         if (install.error) {
             console.error(install.error);
@@ -83,7 +83,7 @@ if (!fs.existsSync(EMCC_BIN)) {
 
     // 'emsdk activate latest'
 
-    const activate = spawnSync(`${EMSDK_BIN} activate latest`, { shell: true, stdio: 'inherit', cwd: DEPS_EMSDK });
+    const activate = child_process.spawnSync(`${EMSDK_BIN} activate latest`, { shell: true, stdio: 'inherit', cwd: EMSDK_FOLDER });
     if (activate.status !== 0) {
         if (activate.error) {
             console.error(activate.error);

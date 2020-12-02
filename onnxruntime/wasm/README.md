@@ -8,17 +8,22 @@ Currently, only MLAS can be built to WASM. More parts in ORT will be built into 
 
 1. Install Node.js 14.x
 2. Syncup git submodules (cmake/external/emsdk)
-3. Perform one-time setup
+3. Perform one-time setup (This will be implicit called by build.cmd. It takes some time to download.)
     - `emsdk install latest`
     - `emsdk activate latest`
 
 ### Building
 
-1. call `build.cmd`
+- Build WebAssembly MVP
+   - call `build.cmd`
+   - call `build.cmd debug` for debug build
+- Build WebAssembly SIMD128
+   - call `build.cmd simd`
+   - call `build.cmd simd debug` for debug build
 
 ### Test
 
-1. Use Node.js to launch.
+- Use Node.js to launch.
    - call `test.cmd`
 
 ### Output
