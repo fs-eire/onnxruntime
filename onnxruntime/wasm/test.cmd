@@ -1,1 +1,1 @@
-node --experimental-wasm-simd -e "require('./out_wasm_main')();"
+node --experimental-wasm-simd --experimental-wasm-threads --experimental-wasm-bulk-memory ./test

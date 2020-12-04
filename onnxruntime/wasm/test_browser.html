@@ -1,0 +1,24 @@
+<html>
+    <body>
+        <!-- 
+
+            HOW TO TEST THIS HTML:
+
+            1. build wasm ( out_wasm_main.js and out_wasm_main.wasm should present in current folder )
+            2. run `npx light-server -s .` in current folder (need install node.js). It will output to stdout `light-server is listening at <A-LOCALHOST-URL>`
+            3. use a browser (chrome/edge) to access the URL and use F12 for devtools
+
+        -->
+        <script src="out_wasm_main.js"></script>
+        <script type="text/javascript">
+            onnxjs().then ( (o) => {
+                setTimeout( () => {
+                    console.log('----------------start----------------');
+                    o.__Z18mlas_unittest_mainv();
+
+                    
+                }, 2000);
+            });
+        </script>
+    </body>
+</html>

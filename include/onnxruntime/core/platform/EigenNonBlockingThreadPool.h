@@ -1174,6 +1174,7 @@ int CurrentThreadId() const EIGEN_FINAL {
 
   // Main worker thread loop.
   void WorkerLoop(int thread_id) {
+    printf("worker start %d %d\n", (int)(pthread_self()), thread_id);
     PerThread* pt = GetPerThread();
     WorkerData& td = worker_data_[thread_id];
     Queue& q = td.queue;

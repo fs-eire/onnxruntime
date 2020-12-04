@@ -1,0 +1,1 @@
+build --skip_tests --skip_submodule_sync --config Release && build\Windows\Release\Release\onnxruntime_mlas_test.exe

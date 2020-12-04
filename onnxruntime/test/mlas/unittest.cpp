@@ -29,6 +29,7 @@ Abstract:
 #endif
 #if !defined(MLAS_NO_ONNXRUNTIME_THREADPOOL)
 #include "core/platform/threadpool.h"
+#include "core/platform/env.h"
 #endif
 
 #include "core/common/make_unique.h"
@@ -37,7 +38,21 @@ Abstract:
 #define _countof(_Array) (sizeof(_Array) / sizeof(_Array[0]))
 #endif
 
+//MLAS_THREADPOOL* threadpool = nullptr;
+
+#if !defined(MLAS_NO_ONNXRUNTIME_THREADPOOL)
+MLAS_THREADPOOL* threadpool = new MLAS_THREADPOOL(&onnxruntime::Env::Default(),
+                                                   onnxruntime::ThreadOptions{},
+#if defined(_WIN32)
+                                                   L"unittest",
+#else
+                                                   "unittest",
+#endif
+                                                   4, //onnxruntime::Env::Default().GetNumCpuCores(),
+                                                   false);
+#else
 MLAS_THREADPOOL* threadpool = nullptr;
+#endif
 
 template<typename T>
 class MatrixGuardBuffer
@@ -2936,10 +2951,10 @@ RunThreadedTests(
     onnxruntime::make_unique<MlasFgemmTest<float, false>>()->ExecuteShort();
     printf("SGEMM packed tests.\n");
     onnxruntime::make_unique<MlasFgemmTest<float, true>>()->ExecuteShort();
-#ifdef MLAS_SUPPORTS_GEMM_DOUBLE
-    printf("DGEMM tests.\n");
-    onnxruntime::make_unique<MlasFgemmTest<double, false>>()->ExecuteShort();
-#endif
+// #ifdef MLAS_SUPPORTS_GEMM_DOUBLE
+//     printf("DGEMM tests.\n");
+//     onnxruntime::make_unique<MlasFgemmTest<double, false>>()->ExecuteShort();
+// #endif
 
     printf("SGEMM benchmark.\n");
     onnxruntime::make_unique<MlasFgemmTest<float, false>>()->Benchmark(CblasNoTrans, CblasNoTrans);
@@ -2955,19 +2970,75 @@ RunThreadedTests(
 
 }
 
+#include <pthread.h>
+#include <emscripten.h>
+const int NUM_THREADS = 8;
+char *messages[NUM_THREADS];
+    pthread_t threads[NUM_THREADS];
+    long taskids[NUM_THREADS];
+
+void *PrintHello(void *threadid)
+{
+   long taskid;
+
+   taskid = (long) threadid;
+   printf("Thread %d: %s\n", taskid, messages[taskid]);
+   pthread_exit(NULL);
+}
+
+void a_working_example_of_pthread_join(void *state) {
+    printf("start join\n");
+    for(int t=0;t<NUM_THREADS;t++) {
+        (void) pthread_join(threads[t], NULL);
+    }
+
+    printf("done join\n");
+    pthread_exit(NULL);
+}
+
+void a_working_example_of_pthread() {
+    messages[0] = "English: Hello World!";
+    messages[1] = "French: Bonjour, le monde!";
+    messages[2] = "Spanish: Hola al mundo";
+    messages[3] = "Klingon: Nuq neH!";
+    messages[4] = "German: Guten Tag, Welt!"; 
+    messages[5] = "Russian: Zdravstvuyte, mir!";
+    messages[6] = "Japan: Sekai e konnichiwa!";
+    messages[7] = "Latin: Orbis, te saluto!";
+
+    int rc, t;
+    for(t=0;t<NUM_THREADS;t++) {
+        taskids[t] = t;
+        printf("Creating thread %d\n", t);
+        rc = pthread_create(&threads[t], NULL, PrintHello, (void *) taskids[t]);
+        if (rc) {
+            printf("ERROR; return code from pthread_create() is %d\n", rc);
+            exit(-1);
+        }
+    }
+
+    emscripten_async_call(a_working_example_of_pthread_join, nullptr, 1000);
+}
+
+#ifdef __wasm__
+#define MLAS_UNITTEST_MAIN mlas_unittest_main
+#else
+#define MLAS_UNITTEST_MAIN main
+#endif
+
 int
 #if defined(_WIN32)
 __cdecl
 #endif
-main(
+#ifdef __EMSCRIPTEN__
+EMSCRIPTEN_KEEPALIVE
+#endif
+MLAS_UNITTEST_MAIN(
     void
     )
 {
-    //
-    // Run threaded tests without the thread pool.
-    //
-
-    RunThreadedTests();
+    a_working_example_of_pthread();
+    //RunThreadedTests();
     printf("Done.\n");
 
 #ifdef MLAS_TARGET_AMD64
