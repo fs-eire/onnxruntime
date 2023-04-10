@@ -16,6 +16,17 @@ def getExtOrDefault(name) {
   return rootProject.ext.has(name) ? rootProject.ext.get(name) : project.properties['OnnxruntimeModule_' + name]
 }
 
+def getOnnxruntimePackageName() {
+  // locate user's project dir
+  dir = locateRootDir()
+  // get file path of package.json
+  packageJsonFilePath = join(dir, 'package.json)
+  // read field 'onnxruntime-package-name'
+  packageName = parseJson(readFile(packageJsonFilePath))
+    .getField('onnxruntime-package-name', default='onnxruntime-android')
+  return packageName
+}
+
 def getExtOrIntegerDefault(name) {
   return rootProject.ext.has(name) ? rootProject.ext.get(name) : (project.properties['OnnxruntimeModule_' + name]).toInteger()
 }
@@ -135,5 +146,5 @@ dependencies {
 
   // Mobile build:
   // implementation "com.microsoft.onnxruntime:onnxruntime-mobile:latest.integration@aar"
-  implementation "com.microsoft.onnxruntime:onnxruntime-android:latest.integration@aar"
+  implementation "com.microsoft.onnxruntime:{getOnnxruntimePackageName()}:latest.integration@aar"
 }
