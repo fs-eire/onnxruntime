@@ -138,7 +138,7 @@ export const init = async(module: OrtWasmModule, env: Env): Promise<void> => {
 
     init(
         // backend
-        {backend},
+        backend,
 
         // jsepAlloc()
         (size: number) => backend.alloc(size),

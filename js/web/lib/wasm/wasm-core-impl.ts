@@ -1,12 +1,12 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-import {Env, InferenceSession, Tensor} from 'onnxruntime-common';
+import {env, Env, InferenceSession, Tensor} from 'onnxruntime-common';
 
 import {SerializableModeldata, SerializableSessionMetadata, SerializableTensor} from './proxy-messages';
 import {setRunOptions} from './run-options';
 import {setSessionOptions} from './session-options';
-import {logLevelStringToEnum, tensorDataTypeEnumToString, tensorDataTypeStringToEnum, tensorTypeToTypedArrayConstructor} from './wasm-common';
+import {getTensorElementSize, logLevelStringToEnum, tensorDataTypeEnumToString, tensorDataTypeStringToEnum, tensorTypeToTypedArrayConstructor} from './wasm-common';
 import {getInstance} from './wasm-factory';
 import {allocWasmString, checkLastError} from './wasm-utils';
 
@@ -60,9 +60,9 @@ export const initRuntime = async(env: Env): Promise<void> => {
 };
 
 /**
- *  tuple elements are: InferenceSession ID; inputNamesUTF8Encoded; outputNamesUTF8Encoded
+ *  tuple elements are: InferenceSession ID; inputNamesUTF8Encoded; outputNamesUTF8Encoded; outputDevices
  */
-type SessionMetadata = [number, number[], number[]];
+type SessionMetadata = [number, number[], number[], number[]];
 
 const activeSessions = new Map<number, SessionMetadata>();
 
@@ -108,6 +108,7 @@ export const createSessionFinalize =
 
         const inputNames = [];
         const outputNames = [];
+        const outputDevices = [];
         for (let i = 0; i < inputCount; i++) {
           const name = wasm._OrtGetInputName(sessionHandle, i);
           if (name === 0) {
@@ -123,9 +124,12 @@ export const createSessionFinalize =
           }
           outputNamesUTF8Encoded.push(name);
           outputNames.push(wasm.UTF8ToString(name));
+          // TODO: support other devices
+          outputDevices.push(options?.preferredOutputLocation === 'gpu-buffer' ? 1 : 0);
         }
 
-        activeSessions.set(sessionHandle, [sessionHandle, inputNamesUTF8Encoded, outputNamesUTF8Encoded]);
+        activeSessions.set(
+            sessionHandle, [sessionHandle, inputNamesUTF8Encoded, outputNamesUTF8Encoded, outputDevices]);
         return [sessionHandle, inputNames, outputNames];
       } catch (e) {
         inputNamesUTF8Encoded.forEach(buf => wasm._OrtFree(buf));
@@ -163,63 +167,74 @@ export const releaseSession = (sessionId: number): void => {
   }
   const [sessionHandle, inputNamesUTF8Encoded, outputNamesUTF8Encoded] = session;
 
+  const webgpuUnregisterBuffer = env.webgpu.unregisterBuffer;
+  if (webgpuUnregisterBuffer) {
+    inputNamesUTF8Encoded.forEach((_, i) => webgpuUnregisterBuffer(`${sessionId}<<${i}`));
+    outputNamesUTF8Encoded.forEach((_, i) => webgpuUnregisterBuffer(`${sessionId}>>${i}`));
+  }
+
   inputNamesUTF8Encoded.forEach(buf => wasm._OrtFree(buf));
   outputNamesUTF8Encoded.forEach(buf => wasm._OrtFree(buf));
   wasm._OrtReleaseSession(sessionHandle);
   activeSessions.delete(sessionId);
 };
 
-/**
- * perform inference run
- */
-export const run = async(
-    sessionId: number, inputIndices: number[], inputs: SerializableTensor[], outputIndices: number[],
-    options: InferenceSession.RunOptions): Promise<SerializableTensor[]> => {
-  const wasm = getInstance();
-  const session = activeSessions.get(sessionId);
-  if (!session) {
-    throw new Error(`cannot run inference. invalid session id: ${sessionId}`);
-  }
-  const [sessionHandle, inputNamesUTF8Encoded, outputNamesUTF8Encoded] = session;
+const prepareInputOutputTensor =
+    (tensor: SerializableTensor|null, values: number[], allocs: number[], getUniqueName: () => string): void => {
+      if (!tensor) {
+        values.push(0);
+        return;
+      }
 
-  const inputCount = inputIndices.length;
-  const outputCount = outputIndices.length;
+      const wasm = getInstance();
 
-  let runOptionsHandle = 0;
-  let runOptionsAllocs: number[] = [];
-
-  const inputValues: number[] = [];
-  const inputAllocs: number[] = [];
-
-  try {
-    [runOptionsHandle, runOptionsAllocs] = setRunOptions(options);
-
-    // create input tensors
-    for (let i = 0; i < inputCount; i++) {
-      const dataType = inputs[i][0];
-      const dims = inputs[i][1];
-      const data = inputs[i][2];
+      const dataType = tensor[0];
+      const dims = tensor[1];
+      const location = tensor[3];
 
       let dataOffset: number;
       let dataByteLength: number;
+      let dataLocation: number;
 
-      if (Array.isArray(data)) {
-        // string tensor
-        dataByteLength = 4 * data.length;
-        dataOffset = wasm._malloc(dataByteLength);
-        inputAllocs.push(dataOffset);
-        let dataIndex = dataOffset / 4;
-        for (let i = 0; i < data.length; i++) {
-          if (typeof data[i] !== 'string') {
-            throw new TypeError(`tensor data at index ${i} is not a string`);
-          }
-          wasm.HEAPU32[dataIndex++] = allocWasmString(data[i], inputAllocs);
+      if (dataType === 'string' && (location === 'texture' || location === 'gpu-buffer')) {
+        throw new Error('String tensor is not supported on GPU.');
+      }
+
+      if (location === 'texture') {
+        throw new Error('IO Binding for WebGL texture is not supported yet.');
+      } else if (location === 'gpu-buffer') {
+        const gpuBuffer = tensor[2] as GPUBuffer;
+        const webgpuRegisterBuffer = env.webgpu.registerBuffer;
+        if (!webgpuRegisterBuffer) {
+          throw new Error('GPUBuffer is not supported without WebGPU backend.');
         }
+
+        const elementSizeInBytes = getTensorElementSize(tensorDataTypeStringToEnum(dataType))!;
+        dataByteLength = dims.reduce((a, b) => a * b, 1) * elementSizeInBytes;
+        dataOffset = webgpuRegisterBuffer(getUniqueName(), gpuBuffer, dataByteLength);
+        dataLocation = 1;  // gpu-buffer
       } else {
-        dataByteLength = data.byteLength;
-        dataOffset = wasm._malloc(dataByteLength);
-        inputAllocs.push(dataOffset);
-        wasm.HEAPU8.set(new Uint8Array(data.buffer, data.byteOffset, dataByteLength), dataOffset);
+        const data = tensor[2];
+        dataLocation = 0;  // cpu
+
+        if (Array.isArray(data)) {
+          // string tensor
+          dataByteLength = 4 * data.length;
+          dataOffset = wasm._malloc(dataByteLength);
+          allocs.push(dataOffset);
+          let dataIndex = dataOffset / 4;
+          for (let i = 0; i < data.length; i++) {
+            if (typeof data[i] !== 'string') {
+              throw new TypeError(`tensor data at index ${i} is not a string`);
+            }
+            wasm.HEAPU32[dataIndex++] = allocWasmString(data[i], allocs);
+          }
+        } else {
+          dataByteLength = data.byteLength;
+          dataOffset = wasm._malloc(dataByteLength);
+          allocs.push(dataOffset);
+          wasm.HEAPU8.set(new Uint8Array(data.buffer, data.byteOffset, dataByteLength), dataOffset);
+        }
       }
 
       const stack = wasm.stackSave();
@@ -228,14 +243,54 @@ export const run = async(
         let dimIndex = dimsOffset / 4;
         dims.forEach(d => wasm.HEAP32[dimIndex++] = d);
         const tensor = wasm._OrtCreateTensor(
-            tensorDataTypeStringToEnum(dataType), dataOffset, dataByteLength, dimsOffset, dims.length);
+            tensorDataTypeStringToEnum(dataType), dataOffset, dataByteLength, dimsOffset, dims.length, dataLocation);
         if (tensor === 0) {
-          checkLastError(`Can't create tensor for input[${i}].`);
+          checkLastError(`Can't create tensor for input/output: "${getUniqueName()}".`);
         }
-        inputValues.push(tensor);
+        values.push(tensor);
       } finally {
         wasm.stackRestore(stack);
       }
+    };
+
+/**
+ * perform inference run
+ */
+export const run = async(
+    sessionId: number, inputIndices: number[], inputs: SerializableTensor[], outputIndices: number[],
+    outputs: Array<SerializableTensor|null>, options: InferenceSession.RunOptions): Promise<SerializableTensor[]> => {
+  const wasm = getInstance();
+  const session = activeSessions.get(sessionId);
+  if (!session) {
+    throw new Error(`cannot run inference. invalid session id: ${sessionId}`);
+  }
+  const [sessionHandle, inputNamesUTF8Encoded, outputNamesUTF8Encoded, outputDevices] = session;
+
+  // use IO binding only when at least one output is preffered to be on GPU.
+  const useIOBinding = outputDevices.some(d => d === 1);
+  let bindingHandle = 0;
+
+  const inputCount = inputIndices.length;
+  const outputCount = outputIndices.length;
+
+  let runOptionsHandle = 0;
+  let runOptionsAllocs: number[] = [];
+
+  const inputValues: number[] = [];
+  const outputValues: number[] = [];
+  const inputOutputAllocs: number[] = [];
+
+  try {
+    [runOptionsHandle, runOptionsAllocs] = setRunOptions(options);
+
+    // create input tensors
+    for (let i = 0; i < inputCount; i++) {
+      prepareInputOutputTensor(inputs[i], inputValues, inputOutputAllocs, () => `${sessionId}<<${inputIndices[i]}`);
+    }
+
+    // create output tensors
+    for (let i = 0; i < outputCount; i++) {
+      prepareInputOutputTensor(outputs[i], outputValues, inputOutputAllocs, () => `${sessionId}>>${outputIndices[i]}`);
     }
 
     const beforeRunStack = wasm.stackSave();
@@ -243,28 +298,41 @@ export const run = async(
     const inputNamesOffset = wasm.stackAlloc(inputCount * 4);
     const outputValuesOffset = wasm.stackAlloc(outputCount * 4);
     const outputNamesOffset = wasm.stackAlloc(outputCount * 4);
+    const outputDevicesOffset = wasm.stackAlloc(outputCount * 4);
 
     try {
       let inputValuesIndex = inputValuesOffset / 4;
       let inputNamesIndex = inputNamesOffset / 4;
       let outputValuesIndex = outputValuesOffset / 4;
       let outputNamesIndex = outputNamesOffset / 4;
+      let outputDevicesIndex = outputDevicesOffset / 4;
       for (let i = 0; i < inputCount; i++) {
         wasm.HEAPU32[inputValuesIndex++] = inputValues[i];
         wasm.HEAPU32[inputNamesIndex++] = inputNamesUTF8Encoded[inputIndices[i]];
       }
       for (let i = 0; i < outputCount; i++) {
-        wasm.HEAPU32[outputValuesIndex++] = 0;
+        wasm.HEAPU32[outputValuesIndex++] = outputValues[i];
         wasm.HEAPU32[outputNamesIndex++] = outputNamesUTF8Encoded[outputIndices[i]];
+        wasm.HEAPU32[outputDevicesIndex++] = outputDevices[outputIndices[i]];
+      }
+
+      if (useIOBinding) {
+        bindingHandle = wasm._OrtCreateBinding(
+            sessionHandle, inputNamesOffset, inputValuesOffset, inputCount, outputNamesOffset, outputValuesOffset,
+            outputDevicesOffset, outputCount);
+        if (bindingHandle === 0) {
+          checkLastError('Can\'t create input/output binding.');
+        }
       }
 
       // jsepOnRunStart is only available when JSEP is enabled.
       wasm.jsepOnRunStart?.(sessionId);
 
-      // support RunOptions
-      let errorCode = wasm._OrtRun(
-          sessionHandle, inputNamesOffset, inputValuesOffset, inputCount, outputNamesOffset, outputCount,
-          outputValuesOffset, runOptionsHandle);
+      let errorCode = useIOBinding ? wasm._OrtRunWithBinding(sessionHandle, bindingHandle, runOptionsHandle) :
+                                     wasm._OrtRun(
+                                         sessionHandle, inputNamesOffset, inputValuesOffset, inputCount,
+                                         outputNamesOffset, outputCount, outputValuesOffset, runOptionsHandle);
+
 
       const runPromise = wasm.jsepRunPromise;
       if (runPromise) {
@@ -296,6 +364,11 @@ export const run = async(
 
       for (let i = 0; i < outputCount; i++) {
         const tensor = wasm.HEAPU32[outputValuesOffset / 4 + i];
+        if (tensor === outputValues[i]) {
+          // output tensor is pre-allocated. no need to copy data.
+          output.push(outputs[i]!);
+          continue;
+        }
 
         const beforeGetTensorDataStack = wasm.stackSave();
         // stack allocate 4 pointer value
@@ -319,7 +392,7 @@ export const run = async(
           }
           wasm._OrtFree(dimsOffset);
 
-          const size = dims.length === 0 ? 1 : dims.reduce((a, b) => a * b);
+          const size = dims.reduce((a, b) => a * b, 1);
           type = tensorDataTypeEnumToString(dataType);
           if (type === 'string') {
             const stringData: string[] = [];
@@ -329,13 +402,13 @@ export const run = async(
               const maxBytesToRead = i === size - 1 ? undefined : wasm.HEAPU32[dataIndex] - offset;
               stringData.push(wasm.UTF8ToString(offset, maxBytesToRead));
             }
-            output.push([type, dims, stringData]);
+            output.push([type, dims, stringData, 'cpu']);
           } else {
             const typedArrayConstructor = tensorTypeToTypedArrayConstructor(type);
             const data = new typedArrayConstructor(size);
             new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
                 .set(wasm.HEAPU8.subarray(dataOffset, dataOffset + data.byteLength));
-            output.push([type, dims, data]);
+            output.push([type, dims, data, 'cpu']);
           }
         } finally {
           wasm.stackRestore(beforeGetTensorDataStack);
@@ -351,8 +424,13 @@ export const run = async(
       wasm.stackRestore(beforeRunStack);
     }
   } finally {
+    if (bindingHandle !== 0) {
+      wasm._OrtReleaseBinding(bindingHandle);
+    }
+
     inputValues.forEach(v => wasm._OrtReleaseTensor(v));
-    inputAllocs.forEach(p => wasm._free(p));
+    outputValues.forEach(v => wasm._OrtReleaseTensor(v));
+    inputOutputAllocs.forEach(p => wasm._free(p));
 
     if (runOptionsHandle !== 0) {
       wasm._OrtReleaseRunOptions(runOptionsHandle);
@@ -384,7 +462,7 @@ export const extractTransferableBuffers = (tensors: readonly SerializableTensor[
   const buffers: ArrayBufferLike[] = [];
   for (const tensor of tensors) {
     const data = tensor[2];
-    if (!Array.isArray(data) && data.buffer) {
+    if (!Array.isArray(data) && 'buffer' in data) {
       buffers.push(data.buffer);
     }
   }

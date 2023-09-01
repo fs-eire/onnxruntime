@@ -3,6 +3,8 @@
 
 #include "js_export.h"
 
+#include "wasm/api.h"
+
 #include "core/framework/op_kernel.h"
 
 const void* JsepOutput(void* context, int index, const void* data) {

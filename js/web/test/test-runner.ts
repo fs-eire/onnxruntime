@@ -14,7 +14,7 @@ import {Operator} from '../lib/onnxjs/operators';
 import {onnx} from '../lib/onnxjs/ort-schema/protobuf/onnx';
 import {Tensor} from '../lib/onnxjs/tensor';
 import {ProtoUtil} from '../lib/onnxjs/util';
-import {tensorDataTypeStringToEnum} from '../lib/wasm/wasm-common';
+import {getTensorElementSize, tensorDataTypeStringToEnum} from '../lib/wasm/wasm-common';
 
 import {base64toBuffer, createMockGraph, readFile} from './test-shared';
 import {Test} from './test-types';
@@ -181,6 +181,7 @@ export class ModelTestContext {
       readonly session: ort.InferenceSession,
       readonly backend: string,
       readonly perfData: ModelTestContext.ModelTestPerfData,
+      readonly ioBinding: ort.Tensor.DataLocation,
       private readonly profile: boolean,
   ) {}
 
@@ -210,11 +211,12 @@ export class ModelTestContext {
     Logger.verbose('TestRunner.Perf', '***Perf Data End');
   }
 
-  release(): void {
+  async release(): Promise<void> {
     if (this.profile) {
       this.session.endProfiling();
     }
     this.logPerfData();
+    await this.session.release();
   }
 
   /**
@@ -243,6 +245,7 @@ export class ModelTestContext {
           session,
           modelTest.backend!,
           {init: initEnd - initStart, firstRun: -1, runs: [], count: 0},
+          modelTest.ioBinding,
           profile,
       );
     } finally {
@@ -480,6 +483,141 @@ export class TensorResultValidator {
   }
 }
 
+function createGpuTensorForInput(cpuTensor: ort.Tensor): ort.Tensor {
+  if (cpuTensor.type !== 'float32' && cpuTensor.type !== 'int32' || Array.isArray(cpuTensor.data)) {
+    throw new Error('createGpuTensorForInput can only work with float32 or int32 tensor');
+  }
+  const device = ort.env.webgpu.device as GPUDevice;
+  const gpuBuffer = device.createBuffer({
+    // eslint-disable-next-line no-bitwise
+    usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
+    size: Math.ceil(cpuTensor.data.byteLength / 4) * 4,
+    mappedAtCreation: true
+  });
+  const arrayBuffer = gpuBuffer.getMappedRange();
+  new Uint8Array(arrayBuffer)
+      .set(new Uint8Array(cpuTensor.data.buffer, cpuTensor.data.byteOffset, cpuTensor.data.byteLength));
+  gpuBuffer.unmap();
+
+  // TODO: how to "await" for the copy to finish, so that we can get more accurate performance data?
+
+  return ort.Tensor.fromGpuBuffer(
+      gpuBuffer, {dataType: cpuTensor.type, dims: cpuTensor.dims, dispose: () => gpuBuffer.destroy()});
+}
+
+function createGpuTensorForOutput(type: ort.Tensor.Type, dims: readonly number[]) {
+  if (type !== 'float32' && type !== 'int32') {
+    throw new Error('createGpuTensorForOutput can only work with float32 or int32 tensor');
+  }
+
+  const elementSizeInBytes = getTensorElementSize(tensorDataTypeStringToEnum(type))!;
+  const size = dims.reduce((a, b) => a * b, 1) * elementSizeInBytes;
+
+  const device = ort.env.webgpu.device as GPUDevice;
+  const gpuBuffer = device.createBuffer({
+    // eslint-disable-next-line no-bitwise
+    usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
+    size: Math.ceil(size / 4) * 4
+  });
+
+  return ort.Tensor.fromGpuBuffer(gpuBuffer, {
+    dataType: type,
+    dims,
+    dispose: () => gpuBuffer.destroy(),
+    download: async () => {
+      const stagingBuffer = device.createBuffer({
+        // eslint-disable-next-line no-bitwise
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+        size: gpuBuffer.size
+      });
+      const encoder = device.createCommandEncoder();
+      encoder.copyBufferToBuffer(gpuBuffer, 0, stagingBuffer, 0, gpuBuffer.size);
+      device.queue.submit([encoder.finish()]);
+
+      await stagingBuffer.mapAsync(GPUMapMode.READ);
+      const arrayBuffer = stagingBuffer.getMappedRange().slice(0);
+      stagingBuffer.destroy();
+      const data = new Uint8Array(arrayBuffer, 0, size);
+
+      switch (type) {
+        case 'float32':
+          return new Float32Array(data.buffer, data.byteOffset, data.byteLength / 4);
+        case 'int32':
+          return new Int32Array(data.buffer, data.byteOffset, data.byteLength / 4);
+        default:
+          throw new Error('createGpuTensorForOutput can only work with float32 or int32 tensor');
+      }
+    }
+  });
+}
+
+export async function sessionRun(options: {
+  session: ort.InferenceSession; feeds: Record<string, ort.Tensor>;
+  outputsMetaInfo: Record<string, Pick<ort.Tensor, 'dims'|'type'>>;
+  ioBinding?: ort.Tensor.DataLocation;
+}): Promise<[number, number, ort.InferenceSession.OnnxValueMapType]> {
+  const session = options.session;
+  const feeds = options.feeds;
+  const fetches: Record<string, ort.Tensor> = {};
+
+  // currently we only support IO Binding for WebGPU
+  const shouldUpload = options.ioBinding === 'gpu-buffer';
+  try {
+    if (shouldUpload) {
+      // replace the CPU tensors in feeds into GPU tensors
+      for (const name in feeds) {
+        if (Object.hasOwnProperty.call(feeds, name)) {
+          feeds[name] = createGpuTensorForInput(feeds[name]);
+        }
+      }
+    }
+
+    if (shouldUpload) {
+      for (const name in options.outputsMetaInfo) {
+        if (Object.hasOwnProperty.call(options.outputsMetaInfo, name)) {
+          const {type, dims} = options.outputsMetaInfo[name];
+          fetches[name] = createGpuTensorForOutput(type, dims);
+        }
+      }
+    }
+
+    const start = now();
+    Logger.verbose('TestRunner', `Timestamp before session run: ${start}`);
+    const outputs = await (shouldUpload ? session.run(feeds, fetches) : session.run(feeds));
+    const end = now();
+    Logger.verbose('TestRunner', `Timestamp after session run: ${end}`);
+
+    // download each output tensor if needed
+    for (const name in outputs) {
+      if (Object.hasOwnProperty.call(outputs, name)) {
+        const tensor = outputs[name];
+        await tensor.getData(true);
+      }
+    }
+
+    return [start, end, outputs];
+  } finally {
+    // dispose the GPU tensors in feeds
+    for (const name in feeds) {
+      if (Object.hasOwnProperty.call(feeds, name)) {
+        const tensor = feeds[name];
+        if (tensor.location === 'gpu-buffer') {
+          tensor.dispose();
+        }
+      }
+    }
+    // dispose the GPU tensors in fetches
+    for (const name in fetches) {
+      if (Object.hasOwnProperty.call(fetches, name)) {
+        const tensor = fetches[name];
+        if (tensor.location === 'gpu-buffer') {
+          tensor.dispose();
+        }
+      }
+    }
+  }
+}
+
 /**
  * run a single model test case. the inputs/outputs tensors should already been prepared.
  */
@@ -490,12 +628,11 @@ export async function runModelTestSet(
   const validator = new TensorResultValidator(context.backend);
   try {
     const feeds: Record<string, ort.Tensor> = {};
+    const outputsMetaInfo: Record<string, ort.Tensor> = {};
     testCase.inputs!.forEach((tensor, i) => feeds[context.session.inputNames[i]] = tensor);
-    const start = now();
-    Logger.verbose('TestRunner', `Timestamp before session run: ${start}`);
-    const outputs = await context.session.run(feeds);
-    const end = now();
-    Logger.verbose('TestRunner', `Timestamp after session run: ${end}`);
+    testCase.outputs!.forEach((tensor, i) => outputsMetaInfo[context.session.outputNames[i]] = tensor);
+    const [start, end, outputs] =
+        await sessionRun({session: context.session, feeds, outputsMetaInfo, ioBinding: context.ioBinding});
     if (context.perfData.count === 0) {
       context.perfData.firstRun = end - start;
     } else {

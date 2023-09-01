@@ -47,6 +47,16 @@ export interface GpuDataManager {
   refreshPendingBuffers(): void;
 
   /**
+   * register an external buffer for IO Binding.
+   */
+  registerExternalBuffer(name: string, buffer: GPUBuffer, size: number): number;
+
+  /**
+   * unregister an external buffer for IO Binding.
+   */
+  unregisterExternalBuffer(name: string): void;
+
+  /**
    * destroy all gpu buffers. Call this when the session.release is called.
    */
   dispose(): void;
@@ -62,12 +72,12 @@ interface StorageCacheValue {
  */
 const calcNormalizedBufferSize = (size: number) => Math.ceil(size / 16) * 16;
 
-let guid = 0;
+let guid = 1;
 const createNewGpuDataId = () => guid++;
 
 class GpuDataManagerImpl implements GpuDataManager {
   // GPU Data ID => GPU Data ( storage buffer )
-  storageCache: Map<GpuDataId, StorageCacheValue>;
+  private storageCache: Map<GpuDataId, StorageCacheValue>;
 
   // pending buffers for uploading ( data is unmapped )
   private buffersForUploadingPending: GPUBuffer[];
@@ -77,11 +87,15 @@ class GpuDataManagerImpl implements GpuDataManager {
   // The reusable storage buffers for computing.
   private freeBuffers: Map<number, GPUBuffer[]>;
 
+  // The external buffers registered users for IO Binding.
+  private externalBuffers: Map<string, [GpuDataId, number]>;
+
   constructor(private backend: WebGpuBackend) {
     this.storageCache = new Map();
     this.freeBuffers = new Map();
     this.buffersForUploadingPending = [];
     this.buffersPending = [];
+    this.externalBuffers = new Map();
   }
 
   upload(id: GpuDataId, data: Uint8Array): void {
@@ -141,6 +155,43 @@ class GpuDataManagerImpl implements GpuDataManager {
     this.backend.endComputePass();
     commandEncoder.copyBufferToBuffer(
         sourceGpuDataCache.gpuData.buffer, 0, destinationGpuDataCache.gpuData.buffer, 0, size);
+  }
+
+  registerExternalBuffer(name: string, buffer: GPUBuffer, size: number): number {
+    let id: number;
+
+    const cachedExternalData = this.externalBuffers.get(name);
+    if (cachedExternalData) {
+      if (size !== cachedExternalData[1]) {
+        throw new Error(`inconsistent data size. previous size=${cachedExternalData[1]}, new size=${size}`);
+      }
+      LOG_DEBUG(
+          'verbose',
+          () => `[WebGPU] GpuDataManager.registerExternalBuffer(name=${name}, size=${size}): found cached ID=${
+              cachedExternalData[0]}.`);
+      id = cachedExternalData[0];
+    } else {
+      id = createNewGpuDataId();
+      this.externalBuffers.set(name, [id, size]);
+      LOG_DEBUG(
+          'verbose',
+          () => `[WebGPU] GpuDataManager.registerExternalBuffer(name=${name}, size=${size}): new GPU data ID=${id}.`);
+    }
+    this.storageCache.set(id, {gpuData: {id, type: GpuDataType.default, buffer}, originalSize: size});
+    return id;
+  }
+
+  unregisterExternalBuffer(name: string): void {
+    const cachedExternalData = this.externalBuffers.get(name);
+    if (cachedExternalData) {
+      LOG_DEBUG(
+          'verbose',
+          () =>
+              `[WebGPU] GpuDataManager.unregisterExternalBuffer(name=${name}): GPU data ID=${cachedExternalData[0]}.`);
+
+      this.storageCache.delete(cachedExternalData[0]);
+      this.externalBuffers.delete(name);
+    }
   }
 
   // eslint-disable-next-line no-bitwise

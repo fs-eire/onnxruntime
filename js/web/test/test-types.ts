@@ -54,6 +54,7 @@ export declare namespace Test {
     name: string;
     modelUrl: string;
     backend?: string;  // value should be populated at build time
+    ioBinding: Tensor.DataLocation;
     platformCondition?: PlatformCondition;
     cases: readonly ModelTestCase[];
   }
@@ -82,6 +83,7 @@ export declare namespace Test {
     inputShapeDefinitions?: 'none'|'rankOnly'|'static'|ReadonlyArray<InputShapeDefinition|undefined>;
     opset?: OperatorTestOpsetImport;
     backend?: string;  // value should be populated at build time
+    ioBinding: Tensor.DataLocation;
     platformCondition?: PlatformCondition;
     attributes?: readonly AttributeValue[];
     cases: readonly OperatorTestCase[];

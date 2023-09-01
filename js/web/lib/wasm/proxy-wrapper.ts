@@ -203,8 +203,16 @@ export const releaseSession = async(sessionId: number): Promise<void> => {
 
 export const run = async(
     sessionId: number, inputIndices: number[], inputs: SerializableTensor[], outputIndices: number[],
-    options: InferenceSession.RunOptions): Promise<SerializableTensor[]> => {
+    outputs: Array<SerializableTensor|null>, options: InferenceSession.RunOptions): Promise<SerializableTensor[]> => {
   if (!BUILD_DEFS.DISABLE_WASM_PROXY && isProxy()) {
+    // check inputs location
+    if (inputs.some(t => t[3] === 'texture' || t[3] === 'gpu-buffer')) {
+      throw new Error('input tensor on GPU is not supported for proxy.');
+    }
+    // check outputs location
+    if (outputs.some(t => t && (t[3] === 'texture' || t[3] === 'gpu-buffer'))) {
+      throw new Error('output tensor on GPU is not supported for proxy.');
+    }
     ensureWorker();
     return new Promise<SerializableTensor[]>((resolve, reject) => {
       runCallbacks.push([resolve, reject]);
@@ -212,7 +220,7 @@ export const run = async(
       proxyWorker!.postMessage(message, core.extractTransferableBuffers(inputs));
     });
   } else {
-    return core.run(sessionId, inputIndices, inputs, outputIndices, options);
+    return core.run(sessionId, inputIndices, inputs, outputIndices, outputs, options);
   }
 };
 

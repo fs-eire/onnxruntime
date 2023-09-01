@@ -105,6 +105,27 @@ export declare namespace Env {
      * see comments on {@link GpuBufferType} for more details about why not use types defined in "@webgpu/types".
      */
     readonly device: unknown;
+    /**
+     * Register a GPU buffer to the WebGPU data manager. The registered buffer will be assigned a unique id. When a
+     * registered buffer is registered again, the previously assigned id will be returned.
+     *
+     * @ignore
+     *
+     * @param name - the name of the buffer
+     * @param buffer - the GPUBuffer object to be registered
+     * @param size - the size of the buffer in bytes
+     * @returns the GPU data ID of the registered buffer
+     */
+    readonly registerBuffer?: (name: string, buffer: unknown, size: number) => number;
+    /**
+     * Unregister a GPU buffer from the WebGPU data manager. The buffer will be removed from the data manager and the
+     * GPU data ID will be released.
+     *
+     * @ignore
+     *
+     * @param name - the name of the buffer
+     */
+    readonly unregisterBuffer?: (name: string) => void;
   }
 }
 

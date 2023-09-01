@@ -51,6 +51,10 @@ Options:
  -P[=<...>], --perf[=<...>]    Generate performance number. Cannot be used with flag --debug.
                                  This flag can be used with a number as value, specifying the total count of test cases to run. The test cases may be used multiple times. Default value is 10.
  -c, --file-cache              Enable file cache.
+ -i=<...>, --io-binding=<...>  Specify the IO binding type. Should be one of the following:
+                                 none       (default)
+                                 cpu
+                                 gpu-buffer
 
 *** Session Options ***
  -u=<...>, --optimized-model-file-path=<...>        Specify whether to dump the optimized model.
@@ -108,6 +112,7 @@ export declare namespace TestRunnerCliArgs {
   type Backend = 'cpu'|'webgl'|'webgpu'|'wasm'|'onnxruntime'|'xnnpack'|'webnn';
   type Environment = 'chrome'|'edge'|'firefox'|'electron'|'safari'|'node'|'bs';
   type BundleMode = 'prod'|'dev'|'perf';
+  type IOBindingMode = 'none'|'cpu'|'gpu-buffer';
 }
 
 export interface TestRunnerCliArgs {
@@ -138,6 +143,8 @@ export interface TestRunnerCliArgs {
    * perf   | /test/ort.perf.js     | /test/test-main.ts   | (none)             | production
    */
   bundleMode: TestRunnerCliArgs.BundleMode;
+
+  ioBindingMode: TestRunnerCliArgs.IOBindingMode;
 
   logConfig: Test.Config['log'];
 
@@ -415,6 +422,13 @@ export function parseTestRunnerCliArgs(cmdlineArgs: string[]): TestRunnerCliArgs
     logConfig.push({category: 'TestRunner.Perf', config: {minimalSeverity: 'verbose'}});
   }
 
+  // Option: -i=<...>, --io-binding=<...>
+  const ioBindingArg = args['io-binding'] || args.i;
+  const ioBindingMode = (typeof ioBindingArg !== 'string') ? 'none' : ioBindingArg;
+  if (['none', 'cpu', 'gpu-buffer'].indexOf(ioBindingMode) === -1) {
+    throw new Error(`not supported io binding mode ${ioBindingMode}`);
+  }
+
   // Option: -u, --optimized-model-file-path
   const optimizedModelFilePath = args['optimized-model-file-path'] || args.u || undefined;
   if (typeof optimizedModelFilePath !== 'undefined' && typeof optimizedModelFilePath !== 'string') {
@@ -455,6 +469,7 @@ export function parseTestRunnerCliArgs(cmdlineArgs: string[]): TestRunnerCliArgs
     logConfig,
     profile,
     times: perf ? times : undefined,
+    ioBindingMode: ioBindingMode as TestRunnerCliArgs['ioBindingMode'],
     optimizedModelFilePath,
     graphOptimizationLevel: graphOptimizationLevel as TestRunnerCliArgs['graphOptimizationLevel'],
     fileCache,

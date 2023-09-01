@@ -6,17 +6,20 @@ import {Env, InferenceSession, Tensor} from 'onnxruntime-common';
 /**
  *  tuple elements are: ORT element type; dims; tensor data
  */
-export type SerializableTensor = [Tensor.Type, readonly number[], Tensor.DataType];
+export type SerializableTensor =
+    [dataType: Tensor.Type, dims: readonly number[], data: Tensor.GpuBufferType, location: 'gpu-buffer']|
+    [dataType: Tensor.Type, dims: readonly number[], data: Tensor.TextureType, location: 'texture']|
+    [dataType: Tensor.Type, dims: readonly number[], data: Tensor.DataType, location: 'cpu'|'cpu-pinned'];
 
 /**
  *  tuple elements are: InferenceSession handle; input names; output names
  */
-export type SerializableSessionMetadata = [number, string[], string[]];
+export type SerializableSessionMetadata = [sessionHandle: number, inputNames: string[], outputNames: string[]];
 
 /**
  *  tuple elements are: modeldata.offset, modeldata.length
  */
-export type SerializableModeldata = [number, number];
+export type SerializableModeldata = [modelDataOffset: number, modelDataLength: number];
 
 interface MessageError {
   err?: string;

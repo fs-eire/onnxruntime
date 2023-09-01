@@ -66,6 +66,16 @@ OrtErrorCode CheckStatus(OrtStatusPtr status) {
 // unregister the auto release wrapper
 #define UNREGISTER_AUTO_RELEASE(var) auto_release_##var.release()
 
+// code snippet to create a memory info pointer
+#define CREATE_AUTO_RELEASE_MEMORY_INFO(var_name, is_cpu)                                                            \
+  OrtMemoryInfo* var_name = nullptr;                                                                                 \
+  if (is_cpu) {                                                                                                      \
+    RETURN_NULLPTR_IF_ERROR(CreateCpuMemoryInfo, OrtDeviceAllocator, OrtMemTypeDefault, &var_name);                  \
+  } else {                                                                                                           \
+    RETURN_NULLPTR_IF_ERROR(CreateMemoryInfo, "WebGPU_Buffer", OrtDeviceAllocator, 0, OrtMemTypeDefault, &var_name); \
+  }                                                                                                                  \
+  REGISTER_AUTO_RELEASE_HANDLE(MemoryInfo, var_name);
+
 int OrtInit(int num_threads, int logging_level) {
   // Assume that a logging level is check and properly set at JavaScript
 #if defined(__EMSCRIPTEN_PTHREADS__)
@@ -217,13 +227,14 @@ void OrtFree(void* ptr) {
   }
 }
 
-OrtValue* OrtCreateTensor(int data_type, void* data, size_t data_length, size_t* dims, size_t dims_length) {
+OrtValue* OrtCreateTensor(int data_type, void* data, size_t data_length, size_t* dims, size_t dims_length, int data_location) {
   std::vector<int64_t> shapes(dims_length);
   for (size_t i = 0; i < dims_length; i++) {
     shapes[i] = dims[i];
   }
 
   if (data_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING) {
+    // data_location is ignored for string tensor. It is always CPU.
     OrtAllocator* allocator = nullptr;
     RETURN_NULLPTR_IF_ERROR(GetAllocatorWithDefaultOptions, &allocator);
 
@@ -238,9 +249,7 @@ OrtValue* OrtCreateTensor(int data_type, void* data, size_t data_length, size_t*
 
     return UNREGISTER_AUTO_RELEASE(value);
   } else {
-    OrtMemoryInfo* memoryInfo = nullptr;
-    RETURN_NULLPTR_IF_ERROR(CreateCpuMemoryInfo, OrtDeviceAllocator, OrtMemTypeDefault, &memoryInfo);
-    REGISTER_AUTO_RELEASE_HANDLE(MemoryInfo, memoryInfo);
+    CREATE_AUTO_RELEASE_MEMORY_INFO(memoryInfo, data_location == 0);
 
     OrtValue* value = nullptr;
     int error_code = CHECK_STATUS(CreateTensorWithDataAsOrtValue, memoryInfo, data, data_length,
@@ -365,6 +374,48 @@ int OrtAddRunConfigEntry(OrtRunOptions* run_options,
 
 void OrtReleaseRunOptions(OrtRunOptions* run_options) {
   Ort::GetApi().ReleaseRunOptions(run_options);
+}
+
+OrtIoBinding* OrtCreateBinding(OrtSession* session,
+                               const char** input_names,
+                               OrtValue** inputs,
+                               size_t input_count,
+                               const char** output_names,
+                               OrtValue** outputs,
+                               int* output_devices,
+                               size_t output_count) {
+  OrtIoBinding* binding = nullptr;
+  RETURN_NULLPTR_IF_ERROR(CreateIoBinding, session, &binding);
+  REGISTER_AUTO_RELEASE_HANDLE(IoBinding, binding);
+
+  for (size_t i = 0; i < input_count; i++) {
+    RETURN_NULLPTR_IF_ERROR(BindInput, binding, input_names[i], inputs[i]);
+  }
+
+  for (size_t i = 0; i < output_count; i++) {
+    if (outputs[i]) {
+      RETURN_NULLPTR_IF_ERROR(BindOutput, binding, output_names[i], outputs[i]);
+    } else {
+      CREATE_AUTO_RELEASE_MEMORY_INFO(memoryInfo, output_devices[i] == 0);
+      RETURN_NULLPTR_IF_ERROR(BindOutputToDevice, binding, output_names[i], memoryInfo);
+    }
+  }
+
+  return UNREGISTER_AUTO_RELEASE(binding);
+}
+
+void OrtReleaseBinding(OrtIoBinding* io_binding) {
+  Ort::GetApi().ReleaseIoBinding(io_binding);
+}
+
+int OrtRunWithBinding(OrtSession* session,
+                      OrtIoBinding* io_binding,
+                      OrtRunOptions* run_options) {
+  auto status_code = CHECK_STATUS(RunWithBinding, session, run_options, io_binding);
+#if defined(USE_JSEP)
+  EM_ASM({ Module.jsepRunPromiseResolve ?.($0); }, status_code);
+#endif
+  return status_code;
 }
 
 int OrtRun(OrtSession* session,

@@ -157,6 +157,13 @@ export class WebGpuBackend {
     }
 
     Object.defineProperty(this.env.webgpu, 'device', {value: this.device});
+    Object.defineProperty(this.env.webgpu, 'registerBuffer', {
+      value: (name: string, buffer: GPUBuffer, size: number) =>
+          this.gpuDataManager.registerExternalBuffer(name, buffer, size)
+    });
+    Object.defineProperty(
+        this.env.webgpu, 'unregisterBuffer',
+        {value: (name: string) => this.gpuDataManager.unregisterExternalBuffer(name)});
   }
 
   dispose(): void {
@@ -188,11 +195,13 @@ export class WebGpuBackend {
   }
 
   flush(): void {
-    this.endComputePass();
-    this.device.queue.submit([this.getCommandEncoder().finish()]);
-    this.gpuDataManager.refreshPendingBuffers();
-    this.commandEncoder = null;
-    this.pendingDispatchNumber = 0;
+    if (this.commandEncoder) {
+      this.endComputePass();
+      this.device.queue.submit([this.getCommandEncoder().finish()]);
+      this.gpuDataManager.refreshPendingBuffers();
+      this.commandEncoder = null;
+      this.pendingDispatchNumber = 0;
+    }
   }
 
   /**

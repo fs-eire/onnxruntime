@@ -34,6 +34,8 @@ Module['jsepInit'] = (backend, alloc, free, copy, copyAsync, createKernel, relea
       throw new Error('Session ID mismatch');
     }
 
+    backend['flush']();
+
     const errorPromises = Module.jsepSessionState.errors;
     Module.jsepSessionState = null;
 
