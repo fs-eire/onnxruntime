@@ -14,6 +14,26 @@ Module['jsepInit'] = (backend, alloc, free, copy, copyAsync, createKernel, relea
   Module.jsepReleaseKernel = releaseKernel;
   Module.jsepRunKernel = runKernel;
 
+  Module['jsepRegisterBuffer'] = (sessionId, index, buffer, size) => {
+    return backend['registerBuffer'](sessionId, index, buffer, size);
+  };
+
+  Module['jsepUnregisterBuffers'] = sessionId => {
+    backend['unregisterBuffers'](sessionId);
+  };
+
+  Module['jsepGetBuffer'] = (dataId) => {
+    return backend['getBuffer'](dataId);
+  };
+
+  Module['jsepCreateDownloader'] = (gpuBuffer, size, type) => {
+    return backend['createDownloader'](gpuBuffer, size, type);
+  };
+
+  Module['jsepCreateDisposer'] = (gpuBuffer) => {
+    return backend['createDisposer'](gpuBuffer);
+  };
+
   Module['jsepOnRunStart'] = sessionId => {
     Module['jsepRunPromise'] = new Promise(r => {
       Module.jsepRunPromiseResolve = r;
@@ -33,6 +53,8 @@ Module['jsepInit'] = (backend, alloc, free, copy, copyAsync, createKernel, relea
     if (Module.jsepSessionState.sessionId !== sessionId) {
       throw new Error('Session ID mismatch');
     }
+
+    backend['flush']();
 
     const errorPromises = Module.jsepSessionState.errors;
     Module.jsepSessionState = null;

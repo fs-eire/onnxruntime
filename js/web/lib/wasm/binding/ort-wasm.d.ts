@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+import type {Tensor} from 'onnxruntime-common';
+
 export declare namespace JSEP {
   type BackendType = unknown;
   type AllocFunction = (size: number) => number;
@@ -40,11 +42,19 @@ export interface OrtWasmModule extends EmscriptenModule {
 
   _OrtFree(stringHandle: number): void;
 
-  _OrtCreateTensor(dataType: number, dataOffset: number, dataLength: number, dimsOffset: number, dimsLength: number):
-      number;
+  _OrtCreateTensor(
+      dataType: number, dataOffset: number, dataLength: number, dimsOffset: number, dimsLength: number,
+      dataLocation: number): number;
   _OrtGetTensorData(tensorHandle: number, dataType: number, dataOffset: number, dimsOffset: number, dimsLength: number):
       number;
   _OrtReleaseTensor(tensorHandle: number): void;
+  _OrtCreateBinding(sessionHandle: number): number;
+  _OrtBindInput(bindingHandle: number, nameOffset: number, tensorHandle: number): number;
+  _OrtBindOutput(bindingHandle: number, nameOffset: number, tensorHandle: number, location: number): number;
+  _OrtReleaseBinding(ioBindingHandle: number): void;
+  _OrtRunWithBinding(
+      sessionHandle: number, ioBindingHandle: number, outputCount: number, outputsOffset: number,
+      runOptionsHandle: number): number;
   _OrtRun(
       sessionHandle: number, inputNamesOffset: number, inputsOffset: number, inputCount: number,
       outputNamesOffset: number, outputCount: number, outputsOffset: number, runOptionsHandle: number): number;
@@ -108,6 +118,12 @@ export interface OrtWasmModule extends EmscriptenModule {
 
   _JsepOutput(context: number, index: number, data: number): number;
   _JsepGetNodeName(kernel: number): number;
+
+  jsepRegisterBuffer: (sessionId: number, index: number, buffer: GPUBuffer, size: number) => number;
+  jsepUnregisterBuffers?: (sessionId: number) => void;
+  jsepGetBuffer: (dataId: number) => GPUBuffer;
+  jsepCreateDownloader: (gpuBuffer: GPUBuffer, size: number, type: Tensor.Type) => () => Promise<Tensor.DataType>;
+  jsepCreateDisposer: (gpuBuffer: GPUBuffer) => () => void;
 
   jsepOnRunStart?(sessionId: number): void;
   jsepOnRunEnd?(sessionId: number): Promise<void>;

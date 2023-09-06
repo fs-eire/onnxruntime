@@ -164,3 +164,29 @@ export const logLevelStringToEnum = (logLevel?: 'verbose'|'info'|'warning'|'erro
       throw new Error(`unsupported logging level: ${logLevel}`);
   }
 };
+
+/**
+ * Map string data location to integer value
+ */
+export const dataLocationStringToEnum = (location: Tensor.DataLocation): number => {
+  switch (location) {
+    case 'none':
+      return 0;
+    case 'cpu':
+      return 1;
+    case 'cpu-pinned':
+      return 2;
+    case 'texture':
+      return 3;
+    case 'gpu-buffer':
+      return 4;
+    default:
+      throw new Error(`unsupported data location: ${location}`);
+  }
+};
+
+/**
+ * Map integer data location to string value
+ */
+export const dataLocationEnumToString = (location: number): Tensor.DataLocation|undefined =>
+    (['none', 'cpu', 'cpu-pinned', 'texture', 'gpu-buffer'] as const)[location];

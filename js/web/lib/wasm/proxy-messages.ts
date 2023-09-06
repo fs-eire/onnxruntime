@@ -3,20 +3,24 @@
 
 import {Env, InferenceSession, Tensor} from 'onnxruntime-common';
 
-/**
- *  tuple elements are: ORT element type; dims; tensor data
- */
-export type SerializableTensor = [Tensor.Type, readonly number[], Tensor.DataType];
+export type SerializableTensorMetadata =
+    [dataType: Tensor.Type, dims: readonly number[], data: Tensor.DataType, location: 'cpu'];
 
-/**
- *  tuple elements are: InferenceSession handle; input names; output names
- */
-export type SerializableSessionMetadata = [number, string[], string[]];
+export type UnserializableGpuMetadata = {
+  gpuBuffer: Tensor.GpuBufferType;
+  download?: () => Promise<Tensor.DataType>;
+  dispose?: () => void;
+};
 
-/**
- *  tuple elements are: modeldata.offset, modeldata.length
- */
-export type SerializableModeldata = [number, number];
+export type UnserializableTensorMetadata =
+    [dataType: Tensor.Type, dims: readonly number[], data: UnserializableGpuMetadata, location: 'gpu-buffer']|
+    [dataType: Tensor.Type, dims: readonly number[], data: Tensor.DataType, location: 'cpu-pinned'];
+
+export type TensorMetadata = SerializableTensorMetadata|UnserializableTensorMetadata;
+
+export type SerializableSessionMetadata = [sessionHandle: number, inputNames: string[], outputNames: string[]];
+
+export type SerializableModeldata = [modelDataOffset: number, modelDataLength: number];
 
 interface MessageError {
   err?: string;
@@ -58,10 +62,10 @@ interface MessageReleaseSession extends MessageError {
 interface MessageRun extends MessageError {
   type: 'run';
   in ?: {
-    sessionId: number; inputIndices: number[]; inputs: SerializableTensor[]; outputIndices: number[];
+    sessionId: number; inputIndices: number[]; inputs: SerializableTensorMetadata[]; outputIndices: number[];
     options: InferenceSession.RunOptions;
   };
-  out?: SerializableTensor[];
+  out?: SerializableTensorMetadata[];
 }
 
 interface MesssageEndProfiling extends MessageError {

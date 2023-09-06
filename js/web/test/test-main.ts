@@ -106,13 +106,16 @@ for (const group of ORT_WEB_TEST_CONFIG.model) {
         let context: ModelTestContext;
 
         before('prepare session', async () => {
-          context = await ModelTestContext.create(
-              test, ORT_WEB_TEST_CONFIG.profile, ORT_WEB_TEST_CONFIG.options.sessionOptions);
+          const sessionOptions = {...ORT_WEB_TEST_CONFIG.options.sessionOptions};
+          if (test.ioBinding === 'gpu-location') {
+            sessionOptions.preferredOutputLocation = 'gpu-buffer';
+          }
+          context = await ModelTestContext.create(test, ORT_WEB_TEST_CONFIG.profile, sessionOptions);
         });
 
-        after('release session', () => {
+        after('release session', async () => {
           if (context) {
-            context.release();
+            await context.release();
           }
         });
 
