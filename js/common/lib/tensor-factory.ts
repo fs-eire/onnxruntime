@@ -82,7 +82,7 @@ export interface TextureConstructorParameters<T extends TextureDataTypes = Textu
 /**
  * supported data types for constructing a tensor from a WebGPU buffer
  */
-export type GpuBufferDataTypes = 'float32'|'int32';
+export type GpuBufferDataTypes = 'float32'|'float16'|'int32'|'int64'|'uint32'|'bool';
 
 /**
  * represent the parameter for constructing a tensor from a WebGPU buffer

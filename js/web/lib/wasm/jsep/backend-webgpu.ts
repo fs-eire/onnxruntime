@@ -405,6 +405,7 @@ export class WebGpuBackend {
     const sessionInputOutputMapping = this.sessionExternalDataMapping.get(sessionId);
     if (sessionInputOutputMapping) {
       sessionInputOutputMapping.forEach(bufferInfo => this.gpuDataManager.unregisterExternalBuffer(bufferInfo[1]));
+      this.sessionExternalDataMapping.delete(sessionId);
     }
   }
   getBuffer(gpuDataId: number): GPUBuffer {

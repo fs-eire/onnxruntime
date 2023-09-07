@@ -231,7 +231,11 @@ export const releaseSession = (sessionId: number): void => {
   if (!session) {
     throw new Error(`cannot release session. invalid session id: ${sessionId}`);
   }
-  const [sessionHandle, inputNamesUTF8Encoded, outputNamesUTF8Encoded] = session;
+  const [sessionHandle, inputNamesUTF8Encoded, outputNamesUTF8Encoded, ioBindingState] = session;
+
+  if (ioBindingState) {
+    wasm._OrtReleaseBinding(ioBindingState.handle);
+  }
 
   wasm.jsepUnregisterBuffers?.(sessionHandle);
 
@@ -397,9 +401,10 @@ export const run = async(
         }
 
         const processedOutputIndices = new Set<number>();
+
+        // process pre-allocated outputs
         for (let i = 0; i < outputCount; i++) {
           const index = outputIndices[i];
-          processedOutputIndices.add(index);
           const location = outputTensors[i]?.[3];  // undefined means output is not pre-allocated.
           const boundOutput = outputs[index];
 
@@ -413,22 +418,33 @@ export const run = async(
             // output is bound to a different tensor.
             const errorCode = wasm._OrtBindOutput(handle, outputNamesUTF8Encoded[index], outputTensorHandles[i], 0);
             if (errorCode !== 0) {
-              checkLastError(`Can't bind output[${i}] for session=${sessionId}.`);
+              checkLastError(`Can't bind pre-allocated output[${i}] for session=${sessionId}.`);
             }
             outputs[index] = [outputsRawData[i], location];
-          } else if (outputPreferredLocations[index] === 'gpu-buffer') {
-            // output is not pre-allocated and preferred location is on GPU buffer.
-            if (boundOutput && boundOutput[0] === 0 && boundOutput[1] === outputPreferredLocations[index]) {
-              // output is bound to no tensor data and preferred location. skip.
-              continue;
-            }
-
+          } else {
+            // output is not pre-allocated. reset preferred location.
             const errorCode =
                 wasm._OrtBindOutput(handle, outputNamesUTF8Encoded[index], 0, outputPreferredLocationsEncoded[index]);
             if (errorCode !== 0) {
-              checkLastError(`Can't bind output[${i}] to ${outputPreferredLocations[index]} for session=${sessionId}.`);
+              checkLastError(`Can't bind output[${i}] to ${outputPreferredLocations[i]} for session=${sessionId}.`);
             }
-            outputs[index] = [0, outputPreferredLocations[index]];
+            outputs[index] = [0, outputPreferredLocations[i]];
+          }
+
+          processedOutputIndices.add(index);
+        }
+
+        // process preferred location for unused outputs
+        for (let i = 0; i < outputs.length; i++) {
+          // if outputs[i] is null, it's either the initial state or bound to a location. this means no active tensor
+          // is bound to the output.
+          if (!processedOutputIndices.has(i) && outputs[i]) {
+            const errorCode =
+                wasm._OrtBindOutput(handle, outputNamesUTF8Encoded[i], 0, outputPreferredLocationsEncoded[i]);
+            if (errorCode !== 0) {
+              checkLastError(`Can't bind output[${i}] to ${outputPreferredLocations[i]} for session=${sessionId}.`);
+            }
+            outputs[i] = null;
           }
         }
       }

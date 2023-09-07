@@ -170,6 +170,11 @@ async function initializeSession(
   return session;
 }
 
+function isGpuSupported(type: ort.Tensor.Type): type is 'float32'|'float16'|'int32'|'int64'|'uint32'|'bool' {
+  return type === 'float32' || type === 'float16' || type === 'int32' || type === 'int64' || type === 'uint32' ||
+      type === 'bool';
+}
+
 type FileCacheBuffer = {
   [filePath: string]: Uint8Array;
 };
@@ -484,14 +489,14 @@ export class TensorResultValidator {
 }
 
 function createGpuTensorForInput(cpuTensor: ort.Tensor): ort.Tensor {
-  if (cpuTensor.type !== 'float32' && cpuTensor.type !== 'int32' || Array.isArray(cpuTensor.data)) {
-    throw new Error('createGpuTensorForInput can only work with float32 or int32 tensor');
+  if (!isGpuSupported(cpuTensor.type) || Array.isArray(cpuTensor.data)) {
+    throw new Error(`createGpuTensorForInput can not work with ${cpuTensor.type} tensor`);
   }
   const device = ort.env.webgpu.device as GPUDevice;
   const gpuBuffer = device.createBuffer({
     // eslint-disable-next-line no-bitwise
     usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
-    size: Math.ceil(cpuTensor.data.byteLength / 4) * 4,
+    size: Math.ceil(cpuTensor.data.byteLength / 16) * 16,
     mappedAtCreation: true
   });
   const arrayBuffer = gpuBuffer.getMappedRange();
@@ -506,8 +511,8 @@ function createGpuTensorForInput(cpuTensor: ort.Tensor): ort.Tensor {
 }
 
 function createGpuTensorForOutput(type: ort.Tensor.Type, dims: readonly number[]) {
-  if (type !== 'float32' && type !== 'int32') {
-    throw new Error('createGpuTensorForOutput can only work with float32 or int32 tensor');
+  if (!isGpuSupported(type)) {
+    throw new Error(`createGpuTensorForOutput can not work with ${type} tensor`);
   }
 
   const elementSizeInBytes = getTensorElementSize(tensorDataTypeStringToEnum(type))!;
@@ -517,7 +522,7 @@ function createGpuTensorForOutput(type: ort.Tensor.Type, dims: readonly number[]
   const gpuBuffer = device.createBuffer({
     // eslint-disable-next-line no-bitwise
     usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
-    size: Math.ceil(size / 4) * 4
+    size: Math.ceil(size / 16) * 16
   });
 
   return ort.Tensor.fromGpuBuffer(gpuBuffer, {
@@ -543,10 +548,18 @@ function createGpuTensorForOutput(type: ort.Tensor.Type, dims: readonly number[]
       switch (type) {
         case 'float32':
           return new Float32Array(data.buffer, data.byteOffset, data.byteLength / 4);
+        case 'float16':
+          return new Uint16Array(data.buffer, data.byteOffset, data.byteLength / 2);
         case 'int32':
           return new Int32Array(data.buffer, data.byteOffset, data.byteLength / 4);
+        case 'int64':
+          return new BigInt64Array(data.buffer, data.byteOffset, data.byteLength / 8);
+        case 'uint32':
+          return new Uint32Array(data.buffer, data.byteOffset, data.byteLength / 4);
+        case 'bool':
+          return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
         default:
-          throw new Error('createGpuTensorForOutput can only work with float32 or int32 tensor');
+          throw new Error(`createGpuTensorForOutput can not work with type ${type}`);
       }
     }
   });

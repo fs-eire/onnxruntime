@@ -109,10 +109,10 @@ export const downloadGpuData =
             const arrayBuffer = gpuReadBuffer.getMappedRange();
             if (getTargetBuffer) {
               const targetBuffer = getTargetBuffer();
-              targetBuffer.set(new Uint8Array(arrayBuffer, 0, targetBuffer.byteLength));
+              targetBuffer.set(new Uint8Array(arrayBuffer, 0, originalSize));
               return targetBuffer;
             } else {
-              return new Uint8Array(arrayBuffer.slice(0));
+              return new Uint8Array(arrayBuffer.slice(0, originalSize));
             }
           } finally {
             gpuReadBuffer.destroy();
@@ -209,6 +209,10 @@ class GpuDataManagerImpl implements GpuDataManager {
         throw new Error('previous buffer is not registered');
       }
       if (buffer === previousBuffer) {
+        LOG_DEBUG(
+            'verbose',
+            () => `[WebGPU] GpuDataManager.registerExternalBuffer(size=${originalSize}) => id=${
+                id}, buffer is the same, skip.`);
         return id;
       }
       this.externalBuffers.delete(previousBuffer);
@@ -218,6 +222,9 @@ class GpuDataManagerImpl implements GpuDataManager {
 
     this.storageCache.set(id, {gpuData: {id, type: GpuDataType.default, buffer}, originalSize});
     this.externalBuffers.set(buffer, id);
+    LOG_DEBUG(
+        'verbose',
+        () => `[WebGPU] GpuDataManager.registerExternalBuffer(size=${originalSize}) => id=${id}, registered.`);
     return id;
   }
 
@@ -226,6 +233,7 @@ class GpuDataManagerImpl implements GpuDataManager {
     if (id !== undefined) {
       this.storageCache.delete(id);
       this.externalBuffers.delete(buffer);
+      LOG_DEBUG('verbose', () => `[WebGPU] GpuDataManager.unregisterExternalBuffer() => id=${id}`);
     }
   }
 
