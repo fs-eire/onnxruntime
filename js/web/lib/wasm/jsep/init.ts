@@ -186,8 +186,8 @@ export const init = async(module: OrtWasmModule, env: Env): Promise<void> => {
         (kernel: number, contextDataOffset: number, sessionState: JSEP.SessionState) => {
           LOG_DEBUG(
               'verbose',
-              () => `[WebGPU] jsepRun: sessionId=${sessionState.sessionId}, kernel=${kernel}, contextDataOffset=${
-                  contextDataOffset}`);
+              () => `[WebGPU] jsepRun: sessionHandle=${sessionState.sessionHandle}, kernel=${
+                  kernel}, contextDataOffset=${contextDataOffset}`);
           const context = new ComputeContextImpl(module, backend, contextDataOffset);
           return backend.computeKernel(kernel, context, sessionState.errors);
         });

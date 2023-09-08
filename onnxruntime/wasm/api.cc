@@ -441,45 +441,33 @@ int OrtRunWithBinding(OrtSession* session,
                       size_t output_count,
                       OrtValue** outputs,
                       OrtRunOptions* run_options) {
-  int error_code = ORT_OK;
-  do {
-    SET_ERROR_CODE_AND_BREAK_IF_ERROR(RunWithBinding, session, run_options, io_binding);
+  RETURN_ERROR_CODE_IF_ERROR(RunWithBinding, session, run_options, io_binding);
 
-    OrtAllocator* allocator = nullptr;
-    SET_ERROR_CODE_AND_BREAK_IF_ERROR(GetAllocatorWithDefaultOptions, &allocator);
+  OrtAllocator* allocator = nullptr;
+  RETURN_ERROR_CODE_IF_ERROR(GetAllocatorWithDefaultOptions, &allocator);
 
-    size_t binding_output_count = 0;
-    OrtValue** binding_outputs = nullptr;
-    SET_ERROR_CODE_AND_BREAK_IF_ERROR(GetBoundOutputValues, io_binding, allocator, &binding_outputs, &binding_output_count);
-    REGISTER_AUTO_RELEASE_BUFFER(OrtValue*, binding_outputs, allocator);
+  size_t binding_output_count = 0;
+  OrtValue** binding_outputs = nullptr;
+  RETURN_ERROR_CODE_IF_ERROR(GetBoundOutputValues, io_binding, allocator, &binding_outputs, &binding_output_count);
+  REGISTER_AUTO_RELEASE_BUFFER(OrtValue*, binding_outputs, allocator);
 
-    if (binding_output_count != output_count) {
-      error_code = CheckStatus(
-          Ort::GetApi().CreateStatus(ORT_INVALID_ARGUMENT, "Output count is inconsistent with IO Binding output data."));
-      break;
-    }
+  if (binding_output_count != output_count) {
+    return CheckStatus(
+        Ort::GetApi().CreateStatus(ORT_INVALID_ARGUMENT, "Output count is inconsistent with IO Binding output data."));
+  }
 
-    for (size_t i = 0; i < output_count; i++) {
-      outputs[i] = binding_outputs[i];
-    }
+  for (size_t i = 0; i < output_count; i++) {
+    outputs[i] = binding_outputs[i];
+  }
 
-  } while (false);
-
-#if defined(USE_JSEP)
-  EM_ASM({ Module.jsepRunPromiseResolve ?.($0); }, error_code);
-#endif
-  return error_code;
+  return ORT_OK;
 }
 
 int OrtRun(OrtSession* session,
            const char** input_names, const ort_tensor_handle_t* inputs, size_t input_count,
            const char** output_names, size_t output_count, ort_tensor_handle_t* outputs,
            OrtRunOptions* run_options) {
-  auto status_code = CHECK_STATUS(Run, session, run_options, input_names, inputs, input_count, output_names, output_count, outputs);
-#if defined(USE_JSEP)
-  EM_ASM({ Module.jsepRunPromiseResolve ?.($0); }, status_code);
-#endif
-  return status_code;
+  return CHECK_STATUS(Run, session, run_options, input_names, inputs, input_count, output_names, output_count, outputs);
 }
 
 char* OrtEndProfiling(ort_session_handle_t session) {
