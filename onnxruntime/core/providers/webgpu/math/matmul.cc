@@ -96,12 +96,12 @@ Status MatMulNativeProgram::GenerateShaderCode(ShaderHelper& shader) const {
                               << ConvertOutputBatchIndicesToInputBatchIndices("a", a, a.Rank() - 2, batch_dims.Rank(), "batch_indices")
                               << a.IndicesSet("a_indices", a.Rank() - 2, 0) << "\n"
                               << a.IndicesSet("a_indices", a.Rank() - 1, 0) << "\n"
-                              << "let a_offset = " << a.IndicesToOffset("a_indices") << ";\n"
+                              << "let a_offset = " << a.IndicesToOffset("a_indices") << " * "<<a_components<<";\n"
                               << "var b_indices: b_indices_t;\n"
                               << ConvertOutputBatchIndicesToInputBatchIndices("b", b, b.Rank() - 2, batch_dims.Rank(), "batch_indices")
                               << b.IndicesSet("b_indices", b.Rank() - 2, 0) << "\n"
                               << b.IndicesSet("b_indices", b.Rank() - 1, 0) << "\n"
-                              << "let b_offset = " << b.IndicesToOffset("b_indices") << ";\n"
+                              << "let b_offset = " << b.IndicesToOffset("b_indices") << "*"<<components<<";\n"
                               << "var values: array<output_value_t, " << output_number_ << ">;\n"
                               << "for (var k: u32 = 0u; k < uniforms.K; k = k + " << a_components << ") {\n"
                               << CalcResult(components, a_components, output_number_) << "\n"
@@ -109,9 +109,9 @@ Status MatMulNativeProgram::GenerateShaderCode(ShaderHelper& shader) const {
                               << "for (var i = 0u; i < " << output_number_ << "u; i++) {\n"
                               << "  var value = values[i];\n"
                               << process_bias << "\n"
-                              << "  let cur_indices = output_indices_t(batch, row + i, col);\n"
+                              << "  let cur_indices = output_indices_t(batch, row + i, col/"<<components<<");\n"
                               << "  let offset = " << output.IndicesToOffset("cur_indices") << ";\n"
-                              << output.SetByOffset("offset / " + std::to_string(components), "value")
+                              << output.SetByOffset("offset", "value")
                               << "}\n";
 
 
@@ -154,7 +154,7 @@ Status MatMul::ComputeInternal(ComputeContext& context) const {
         const size_t output_rank = helper.OutputShape().NumDimensions();
         TensorShape outer_dims = output_rank > 2 ? helper.OutputShape().Slice(0, output_rank -2) : TensorShape({});
         const int64_t batch_size = outer_dims.Size();
-        TensorShape output_shape_shader({batch_size, helper.M(), helper.N()});
+        TensorShape output_shape_shader({batch_size, helper.M(), helper.N() / components});
 
         // logs
         LOGS_DEFAULT(VERBOSE) << "MatMulNativeProgram: a_shape: " << a->Shape().ToString();
@@ -182,7 +182,7 @@ Status MatMul::ComputeInternal(ComputeContext& context) const {
         }
         program
             .AddOutputs({{output_tensor, ProgramTensorMetadataDependency::None ,output_shape_shader, components}})
-            .SetDispatchGroupSize(ceil(static_cast<float>(output_size) / 64 ))
+            .SetDispatchGroupSize((uint32_t)ceil(static_cast<float>(output_size) / 64 ))
             .AddIndices(outer_dims)
             .AddUniformVariables({{output_size}, {m}, {n}, {k}});
 
@@ -193,7 +193,7 @@ Status MatMul::ComputeInternal(ComputeContext& context) const {
         // reshape output shape to original shape
         output_tensor->Reshape(helper.OutputShape());
         LOGS_DEFAULT(VERBOSE) << "Output: ";
-        PrintGPUTensor(context, *output_tensor);
+        ORT_RETURN_IF_ERROR(PrintGPUTensor(context, *output_tensor));
         return res;
     }
 
@@ -267,9 +267,9 @@ Status MatMul::ComputeInternal(ComputeContext& context) const {
                                                  ? InlinedVector<int64_t>({4, 1, 1})
                                                  : InlinedVector<int64_t>({4, 4, 1});
 
-    const uint32_t dispatch_x = ceil(static_cast<float>(dim_b_outer) / MATMUL_PACKED_WORKGROUP_SIZE_X / elements_per_thread[0]);
-    const uint32_t dispatch_y = ceil(static_cast<float>(dim_a_outer) / MATMUL_PACKED_WORKGROUP_SIZE_Y / elements_per_thread[1]);
-    const uint32_t dispatch_z = ceil(static_cast<float>(batch_size) / MATMUL_PACKED_WORKGROUP_SIZE_Z / elements_per_thread[2]);
+    const uint32_t dispatch_x = (uint32_t)ceil(static_cast<float>(dim_b_outer) / MATMUL_PACKED_WORKGROUP_SIZE_X / elements_per_thread[0]);
+    const uint32_t dispatch_y = (uint32_t)ceil(static_cast<float>(dim_a_outer) / MATMUL_PACKED_WORKGROUP_SIZE_Y / elements_per_thread[1]);
+    const uint32_t dispatch_z = (uint32_t)ceil(static_cast<float>(batch_size) / MATMUL_PACKED_WORKGROUP_SIZE_Z / elements_per_thread[2]);
 
     const int components = is_vec4 ? 4 : 1;
     const TensorShape a_shape_temp = BuildTempShapeVector(outer_dims_a, dim_a_outer, dim_inner, components);
@@ -317,7 +317,7 @@ Status MatMul::ComputeInternal(ComputeContext& context) const {
     // reshape output shape to original shape
     output_tensor->Reshape(helper.OutputShape());
     LOGS_DEFAULT(VERBOSE) << "Output: ";
-    PrintGPUTensor(context, *output_tensor);
+    ORT_RETURN_IF_ERROR(PrintGPUTensor(context, *output_tensor));
     return res;
 }
 

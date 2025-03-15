@@ -64,8 +64,8 @@ void MatMulProgram::MatMulReadWriteFnSource(ShaderHelper& shader, const ShaderVa
 
 Status MatMulProgram::MakeMatMUlPackedVec4Source(ShaderHelper& shader, const ShaderIndicesHelper& batch_dims) const {
         // elements per thread
-    const int elements_per_thread_x = elements_per_thread_[0];
-    const int elements_per_thread_y = elements_per_thread_[1];
+    const int elements_per_thread_x = (int)elements_per_thread_[0];
+    const int elements_per_thread_y = (int)elements_per_thread_[1];
     //const int elements_per_thread_z = 1;
     const int tile_inner = 32;
    // const int splitted_dim_inner = 32;
@@ -167,8 +167,8 @@ Status MatMulProgram::MakeMatMUlPackedVec4Source(ShaderHelper& shader, const Sha
 }
 
 Status MatMulProgram::MakeMatMulPackedSource(ShaderHelper& shader, const ShaderIndicesHelper& batch_dims) const {
-    const int elements_per_thread_x = elements_per_thread_[0];
-    const int elements_per_thread_y = elements_per_thread_[1];
+    const int elements_per_thread_x = (int)elements_per_thread_[0];
+  const int elements_per_thread_y = (int)elements_per_thread_[1];
     const int tile_inner = 32;
    // const int splitted_dim_inner = 32;
 
