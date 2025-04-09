@@ -8,12 +8,12 @@
 // not always available.
 
 // The purpose of this script is to download the required binaries for the platform and architecture.
-// Currently, most of the binaries are already bundled in the package, except for the following:
-// - Linux/x64/CUDA 12
+// Currently, most of the binaries are already bundled in the package, except for the files that described in the file
+// install-metadata.js.
 //
-// The CUDA binaries are not bundled because they are too large to be allowed in the npm registry. Instead, they are
-// downloaded from the GitHub release page of ONNX Runtime. The script will download the binaries if they are not
-// already present in the package.
+// Some files (eg. the CUDA EP binaries) are not bundled because they are too large to be allowed in the npm registry.
+// Instead, they are downloaded from the Nuget feed. The script will download the binaries if they are not already
+// present in the NPM package.
 
 // Step.1: Check if we should exit early
 const os = require('os');
@@ -30,9 +30,7 @@ const { bootstrap: globalAgentBootstrap } = require('global-agent');
 globalAgentBootstrap();
 
 // commandline flag:
-// --onnxruntime-node-install-cuda         Force install the CUDA EP binaries. Try to detect the CUDA version.
-// --onnxruntime-node-install-cuda=v11     Force install the CUDA EP binaries for CUDA 11.
-// --onnxruntime-node-install-cuda=v12     Force install the CUDA EP binaries for CUDA 12.
+// --onnxruntime-node-install-cuda         Force install the CUDA EP binaries.
 // --onnxruntime-node-install-cuda=skip    Skip the installation of the CUDA EP binaries.
 //
 // Alternatively, use environment variable "ONNXRUNTIME_NODE_INSTALL_CUDA"
