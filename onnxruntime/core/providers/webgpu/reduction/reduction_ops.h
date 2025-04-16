@@ -49,7 +49,7 @@ class ReduceNaiveProgram final : public Program<ReduceNaiveProgram> {
   Status GenerateShaderCode(ShaderHelper& wgpuShaderModuleAddRef) const override;
   WEBGPU_PROGRAM_DEFINE_UNIFORM_VARIABLES({"output_size", ProgramUniformVariableDataType::Uint32},
                                           {"no_op_with_empty_axes", ProgramUniformVariableDataType::Uint32},
-                                          {"reduceSize", ProgramUniformVariableDataType::Uint32});
+                                          {"reduce_size", ProgramUniformVariableDataType::Uint32});
 
  private:
   const bool keepdims_;
@@ -67,7 +67,7 @@ class ReduceSharedProgram final : public Program<ReduceSharedProgram> {
     }
   }
   Status GenerateShaderCode(ShaderHelper& wgpuShaderModuleAddRef) const override;
-  WEBGPU_PROGRAM_DEFINE_UNIFORM_VARIABLES({"reduceSize", ProgramUniformVariableDataType::Uint32});
+  WEBGPU_PROGRAM_DEFINE_UNIFORM_VARIABLES({"reduce_size", ProgramUniformVariableDataType::Uint32});
 
  private:
   const ReduceOpType reduce_op_type_;
