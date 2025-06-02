@@ -752,7 +752,9 @@ if (onnxruntime_USE_WEBGPU)
           #
           # - (private) Fix copy of dxil.dll in Dawn
           #   The patch ensures the copy of dxil.dll to be done after the build step of `dxcompiler` target.
-          ${Patch_EXECUTABLE} --binary --ignore-whitespace -p1 < ${PROJECT_SOURCE_DIR}/patches/dawn/dawn_fix_copy_dxil_dll.patch)
+          ${Patch_EXECUTABLE} --binary --ignore-whitespace -p1 < ${PROJECT_SOURCE_DIR}/patches/dawn/dawn_fix_copy_dxil_dll.patch &&
+
+          ${Patch_EXECUTABLE} --binary --ignore-whitespace -p1 < ${PROJECT_SOURCE_DIR}/patches/dawn/dawn_webgpu_migration_debug.patch)
 
       onnxruntime_fetchcontent_declare(
         dawn

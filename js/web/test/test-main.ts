@@ -13,6 +13,8 @@ import { Logger } from '../lib/onnxjs/instrument';
 
 import { Test } from './test-types';
 
+(globalThis as any).WEBGPU_STAT = 1;
+
 if (
   // when NPM test is launched with `-e=node` and (`-b=cpu` or `-b=webgpu`), load ONNXRuntime Node.js binding.
   platform.name === 'Node.js' &&

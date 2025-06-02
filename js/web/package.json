@@ -104,7 +104,7 @@
       "types": "./types.d.ts",
       "import": {
         "onnxruntime-web-use-extern-wasm": "./dist/ort.webgpu.min.mjs",
-        "default": "./dist/ort.webgpu.bundle.min.mjs"
+        "default": "./dist/ort.webgpu.mjs"
       },
       "require": "./dist/ort.webgpu.min.js"
     }
