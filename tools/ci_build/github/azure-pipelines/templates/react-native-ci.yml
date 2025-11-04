@@ -122,6 +122,10 @@ stages:
     - template: ../stages/jobs/steps/react-native-bootstrap-steps.yml
 
     - script: |
+        gem install cocoapods --user-install
+      displayName: Install CocoaPods
+
+    - script: |
         ORT_C_LOCAL_POD_PATH=$(Build.BinariesDirectory)/ios_pod/onnxruntime-c \
         pod install
       workingDirectory: '$(Build.SourcesDirectory)/js/react_native/ios'
