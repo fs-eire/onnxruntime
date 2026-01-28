@@ -113,7 +113,7 @@ template <int StartVersion, int EndVersion>
 KernelCreateInfo CreateCastKernelInfo(bool enable_int64) {
   const auto& type_constraints = CastOpTypeConstraints(enable_int64);
 
-  KernelCreateFn kernel_create_fn = [](FuncManager&, const OpKernelInfo& info, std::unique_ptr<OpKernel>& out) -> Status {
+  KernelCreatePtrFn kernel_create_fn = [](FuncManager&, const OpKernelInfo& info, std::unique_ptr<OpKernel>& out) -> Status {
     out = std::make_unique<Cast>(info);
     return Status::OK();
   };
