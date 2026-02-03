@@ -251,7 +251,7 @@ Napi::Value OrtValueToNapiValue(Napi::Env env, Ort::Value&& value) {
   // location
   auto memoryInfo = value.GetTensorMemoryInfo();
   bool isGpuBuffer = memoryInfo.GetDeviceType() == OrtMemoryInfoDeviceType_GPU &&
-                     memoryInfo.GetAllocatorName() == "WebGPU_Buf";
+                     memoryInfo.GetAllocatorName() == "WebGPU_Buffer";
 
   // size
   auto size = tensorTypeAndShapeInfo.GetElementCount();
