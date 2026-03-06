@@ -16,13 +16,13 @@
  * - The Ort::RunOptions singleton instance.
  *   This is an empty default RunOptions instance. It is created once to allow reuse across all session inference runs.
  *
- * The OrtSingletonData class uses the "Meyers Singleton" pattern to ensure thread-safe lazy initialization, as well as
- * proper destruction order at program exit.
+ * The OrtSingletonData class uses the "Meyers Singleton" pattern to ensure thread-safe lazy initialization. The env and
+ * default_run_options are intentionally leaked to avoid issues with destruction order during process shutdown.
  */
 struct OrtSingletonData {
   struct OrtObjects {
-    Ort::Env env;
-    Ort::RunOptions default_run_options;
+    Ort::Env* env;
+    Ort::RunOptions* default_run_options;
 
    private:
     // The following pattern ensures that OrtObjects can only be created by OrtSingletonData
