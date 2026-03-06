@@ -1727,6 +1727,9 @@ if (onnxruntime_BUILD_WINML_TESTS)
   list(APPEND ONNXRUNTIME_CMAKE_FILES winml_unittests)
 endif()
 
+# Experimental mini_runtime tool.
+list(APPEND ONNXRUNTIME_CMAKE_FILES onnxruntime_mini_runtime)
+
 # onnxruntime_training depends on onnxruntime_unittests since onnxruntime_training.cmake uses a variable `TEST_SRC_DIR`
 # that is defined in onnxruntime_unittests.cmake
 if (onnxruntime_ENABLE_TRAINING)
